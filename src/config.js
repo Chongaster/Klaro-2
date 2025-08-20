@@ -28,6 +28,4 @@ export const NAV_CONFIG = {
       { id: 'sharedWithMePerso', title: 'Partagés', icon: '🤝', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents personnels partagés.' }
   ]
 };
-
 export const COURSE_CATEGORIES = [ "Autre", "Fruits & Légumes", "Viandes & Poissons", "Boulangerie", "Produits Laitiers & Œufs", "Épicerie Salée", "Épicerie Sucrée", "Boissons", "Surgelés", "Hygiène & Beauté", "Entretien & Nettoyage" ];
-
