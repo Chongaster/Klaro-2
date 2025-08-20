@@ -1,4 +1,4 @@
- const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyCFMC73NLlmTzGVGcK_-zTwwNyw6-jmr7Y",
   authDomain: "suivitravailapp.firebaseapp.com",
   projectId: "suivitravailapp",
@@ -30,3 +30,4 @@ export const NAV_CONFIG = {
 };
 
 export const COURSE_CATEGORIES = [ "Autre", "Fruits & Légumes", "Viandes & Poissons", "Boulangerie", "Produits Laitiers & Œufs", "Épicerie Salée", "Épicerie Sucrée", "Boissons", "Surgelés", "Hygiène & Beauté", "Entretien & Nettoyage" ];
+
