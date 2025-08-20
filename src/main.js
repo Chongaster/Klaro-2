@@ -1,6 +1,6 @@
 import { initAuth, handleSignOut, showAuthModal } from './auth.js';
 import { setMode, showPage, updateConnectionStatus, renderPageContent, showItemModal, showPreferencesModal } from './ui.js';
-import { setupRealtimeListeners } from './firestore.js'; // MODIFIÉ pour utiliser la nouvelle fonction
+import { debounce } from './utils.js';
 import state from './state.js';
 
 function initializeApp() {
@@ -36,22 +36,21 @@ function initializeEventListeners() {
         }
         const card = e.target.closest('.card[data-id]');
         if (card) {
-            let entry;
-            // Chercher dans les données partagées et privées
-            const config = NAV_CONFIG[state.currentMode].find(p => p.id === state.currentPageId);
-            if (config?.type === COLLECTIONS.COLLABORATIVE_DOCS) {
-                entry = state.sharedDataCache.find(item => item.id === card.dataset.id);
+            const cardId = card.dataset.id;
+            const allPrivateData = Object.values(state.privateDataCache).flat();
+            const allData = [...allPrivateData, ...state.sharedDataCache];
+            const entry = allData.find(item => item.id === cardId);
+            if (entry) {
+                showItemModal(entry, card.dataset.type);
             } else {
-                const privateData = state.privateDataCache[card.dataset.type] || [];
-                const sharedDataForType = state.sharedDataCache.filter(doc => doc.originalType === card.dataset.type);
-                entry = [...privateData, ...sharedDataForType].find(item => item.id === card.dataset.id);
+                console.error("Données de la carte introuvables:", cardId);
             }
-            if (entry) showItemModal(entry, card.dataset.type);
         }
     });
 
-    // Remplacé par le setup global dans auth.js
-    // window.addEventListener('page-changed', ...); 
+    // Écouteur centralisé qui appelle le rendu de manière optimisée
+    const debouncedRender = debounce(renderPageContent, 50);
+    window.addEventListener('datachanged', debouncedRender);
 
     window.addEventListener('online', () => updateConnectionStatus(true));
     window.addEventListener('offline', () => updateConnectionStatus(false));
