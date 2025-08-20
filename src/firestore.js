@@ -1,9 +1,10 @@
 import { collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, addDoc, where, runTransaction, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { ref, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 import { db, storage } from './firebase.js';
-import { firebaseConfig, COLLECTIONS, SHAREABLE_TYPES } from './config.js';
+import { firebaseConfig, COLLECTIONS, NAV_CONFIG, SHAREABLE_TYPES } from './config.js';
 import state from './state.js';
-import { showToast, hideModal } from "./ui.js";
+import { showToast } from "./utils.js";
+import { hideModal, renderPageContent } from "./ui.js";
 
 const appId = firebaseConfig.appId;
 let nicknameCache = {};
@@ -11,7 +12,39 @@ let nicknameCache = {};
 export async function saveUserPreferences(prefs) { if (!state.userId) return; const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings'); await setDoc(prefRef, prefs, { merge: true }); }
 export async function loadUserPreferences() { if (!state.userId) return state.userPreferences; const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings'); const docSnap = await getDoc(prefRef); return docSnap.exists() ? { ...state.userPreferences, ...docSnap.data() } : state.userPreferences; }
 export async function getNicknameByUserId(uid) { if (nicknameCache[uid]) return nicknameCache[uid]; const prefRef = doc(db, `artifacts/${appId}/users/${uid}/${COLLECTIONS.USER_PREFERENCES}`, 'settings'); const docSnap = await getDoc(prefRef); if (docSnap.exists() && docSnap.data().nickname) { nicknameCache[uid] = docSnap.data().nickname; return docSnap.data().nickname; } return uid.substring(0, 8); }
-export function listenToCollection(config, callback) { if (state.unsubscribeListener) state.unsubscribeListener(); if (!state.userId || !config) return; let q; if (config.type === COLLECTIONS.COLLABORATIVE_DOCS) { const path = `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`; q = query(collection(db, path), where('members', 'array-contains', state.userId)); } else { const path = `artifacts/${appId}/users/${state.userId}/${config.type}`; q = query(collection(db, path)); } state.unsubscribeListener = onSnapshot(q, (snapshot) => { callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))); }, (error) => showToast("Erreur de chargement des données.", "error")); }
+
+export function detachAllListeners() {
+    state.unsubscribeListeners.forEach(unsubscribe => unsubscribe());
+    state.unsubscribeListeners = [];
+}
+
+export function setupRealtimeListeners() {
+    if (!state.userId) return;
+    detachAllListeners();
+
+    // Écouteur pour les documents partagés
+    const sharedPath = `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`;
+    const sharedQuery = query(collection(db, sharedPath), where('members', 'array-contains', state.userId));
+    const unsubShared = onSnapshot(sharedQuery, (snapshot) => {
+        state.sharedDataCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), isShared: true }));
+        renderPageContent(); // Rafraîchir la vue
+    }, (error) => console.error("Erreur écoute partagés:", error));
+    state.unsubscribeListeners.push(unsubShared);
+
+    // Écouteurs pour toutes les collections privées
+    const privateCollections = [...new Set(Object.values(NAV_CONFIG).flat().map(c => c.type))];
+    privateCollections.forEach(collectionName => {
+        if (collectionName === COLLECTIONS.COLLABORATIVE_DOCS) return;
+        const path = `artifacts/${appId}/users/${state.userId}/${collectionName}`;
+        const q = query(collection(db, path));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            state.privateDataCache[collectionName] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            renderPageContent(); // Rafraîchir la vue
+        }, (error) => console.error(`Erreur écoute ${collectionName}:`, error));
+        state.unsubscribeListeners.push(unsubscribe);
+    });
+}
+
 export async function addDataItem(collectionName, data) { if (!state.userId) return; const path = `artifacts/${appId}/users/${state.userId}/${collectionName}`; await addDoc(collection(db, path), { ...data, ownerId: state.userId, createdAt: new Date() }); showToast("Élément ajouté !", 'success'); }
 export async function updateDataItem(collectionName, id, data) { if (!state.userId) return; const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS ? `artifacts/${appId}/${collectionName}` : `artifacts/${appId}/users/${state.userId}/${collectionName}`; await updateDoc(doc(db, path, id), data); showToast("Mise à jour enregistrée.", 'success'); }
 export async function deleteDataItem(collectionName, id, filePath = null) { if (!state.userId) return; if (filePath) { try { await deleteObject(ref(storage, filePath)); } catch (error) { if (error.code !== 'storage/object-not-found') { showToast("Erreur de suppression du fichier joint.", "error"); return; } } } const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS ? `artifacts/${appId}/${collectionName}` : `artifacts/${appId}/users/${state.userId}/${collectionName}`; await deleteDoc(doc(db, path, id)); showToast("Élément supprimé.", 'success'); }

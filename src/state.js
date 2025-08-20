@@ -10,8 +10,10 @@ const state = {
   },
   currentMode: 'perso',
   currentPageId: null,
-  dataCache: [],
-  unsubscribeListener: null,
+  // Deux caches séparés pour les données privées et partagées
+  privateDataCache: {},
+  sharedDataCache: [],
+  // Un tableau pour tous les écouteurs temps réel
+  unsubscribeListeners: [],
 };
-
 export default state;

@@ -7,33 +7,9 @@ export const firebaseConfig = {
   appId: "1:621525076182:web:f5a9bc1f5aaae71ce7e177",
   measurementId: "G-15HMDGYYCN"
 };
-
 export const ADMIN_EMAIL = "chongaster@gmail.com";
-
-export const COLLECTIONS = {
-  OBJECTIFS: 'objectifs',
-  ACTIONS: 'actions',
-  NOTES_REUNION: 'notesReunion',
-  TODO: 'todo_perso',
-  VOYAGES: 'voyages',
-  NOTES_PERSO: 'notes_perso',
-  COURSES: 'courses',
-  WALLET: 'wallet',
-  USER_PREFERENCES: 'user_preferences',
-  COLLABORATIVE_DOCS: 'collaborative_docs',
-  NICKNAMES: 'nicknames'
-};
-
-export const SHAREABLE_TYPES = [
-  COLLECTIONS.NOTES_PERSO,
-  COLLECTIONS.COURSES,
-  COLLECTIONS.OBJECTIFS,
-  COLLECTIONS.NOTES_REUNION,
-  COLLECTIONS.VOYAGES,
-  COLLECTIONS.ACTIONS,
-  COLLECTIONS.TODO
-];
-
+export const COLLECTIONS = { OBJECTIFS: 'objectifs', ACTIONS: 'actions', NOTES_REUNION: 'notesReunion', TODO: 'todo_perso', VOYAGES: 'voyages', NOTES_PERSO: 'notes_perso', COURSES: 'courses', WALLET: 'wallet', USER_PREFERENCES: 'user_preferences', COLLABORATIVE_DOCS: 'collaborative_docs', NICKNAMES: 'nicknames' };
+export const SHAREABLE_TYPES = [ COLLECTIONS.NOTES_PERSO, COLLECTIONS.COURSES, COLLECTIONS.OBJECTIFS, COLLECTIONS.NOTES_REUNION, COLLECTIONS.VOYAGES, COLLECTIONS.ACTIONS, COLLECTIONS.TODO ];
 export const NAV_CONFIG = {
   pro: [
       { id: 'objectifs', title: 'Objectifs', icon: '🎯', type: COLLECTIONS.OBJECTIFS, description: 'Suivez vos objectifs principaux.' },
@@ -52,5 +28,4 @@ export const NAV_CONFIG = {
       { id: 'sharedWithMePerso', title: 'Partagés', icon: '🤝', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents personnels partagés.' }
   ]
 };
-
 export const COURSE_CATEGORIES = [ "Autre", "Fruits & Légumes", "Viandes & Poissons", "Boulangerie", "Produits Laitiers & Œufs", "Épicerie Salée", "Épicerie Sucrée", "Boissons", "Surgelés", "Hygiène & Beauté", "Entretien & Nettoyage" ];
