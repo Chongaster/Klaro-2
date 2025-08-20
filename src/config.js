@@ -24,13 +24,22 @@ export const COLLECTIONS = {
   NICKNAMES: 'nicknames'
 };
 
+export const SHAREABLE_TYPES = [
+  COLLECTIONS.NOTES_PERSO,
+  COLLECTIONS.COURSES,
+  COLLECTIONS.OBJECTIFS,
+  COLLECTIONS.NOTES_REUNION,
+  COLLECTIONS.VOYAGES,
+  COLLECTIONS.ACTIONS,
+  COLLECTIONS.TODO
+];
+
 export const NAV_CONFIG = {
   pro: [
       { id: 'objectifs', title: 'Objectifs', icon: '🎯', type: COLLECTIONS.OBJECTIFS, description: 'Suivez vos objectifs principaux.' },
       { id: 'actions', title: 'TO DO', icon: '📝', type: COLLECTIONS.ACTIONS, description: 'Gérez vos tâches professionnelles.' },
       { id: 'actionsTerminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.ACTIONS, description: 'Consultez vos actions achevées.' },
       { id: 'notesReunion', title: 'Notes', icon: '📋', type: COLLECTIONS.NOTES_REUNION, description: 'Archivez vos notes de réunion.' },
-      // LIGNE AJOUTÉE
       { id: 'sharedWithMePro', title: 'Partagés', icon: '🤝', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents professionnels partagés.' }
   ],
   perso: [
@@ -40,21 +49,8 @@ export const NAV_CONFIG = {
       { id: 'notes_perso', title: 'Notes', icon: '🗒️', type: COLLECTIONS.NOTES_PERSO, description: 'Vos pensées et mémos personnels.' },
       { id: 'courses', title: 'Courses', icon: '🛒', type: COLLECTIONS.COURSES, description: 'N\'oubliez plus rien au supermarché.' },
       { id: 'wallet', title: 'Portefeuille', icon: '🎟️', type: COLLECTIONS.WALLET, description: 'Conservez vos billets et documents importants.' },
-      // LIGNE AJOUTÉE
       { id: 'sharedWithMePerso', title: 'Partagés', icon: '🤝', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents personnels partagés.' }
   ]
 };
 
-export const COURSE_CATEGORIES = [
-  "Autre",
-  "Fruits & Légumes",
-  "Viandes & Poissons",
-  "Boulangerie",
-  "Produits Laitiers & Œufs",
-  "Épicerie Salée",
-  "Épicerie Sucrée",
-  "Boissons",
-  "Surgelés",
-  "Hygiène & Beauté",
-  "Entretien & Nettoyage",
-];
+export const COURSE_CATEGORIES = [ "Autre", "Fruits & Légumes", "Viandes & Poissons", "Boulangerie", "Produits Laitiers & Œufs", "Épicerie Salée", "Épicerie Sucrée", "Boissons", "Surgelés", "Hygiène & Beauté", "Entretien & Nettoyage" ];

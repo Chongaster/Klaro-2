@@ -1,6 +1,4 @@
-import state from './state.js';
 import { initAuth, handleSignOut, showAuthModal } from './auth.js';
-// On importe notre nouvelle fonction
 import { setMode, showPage, updateConnectionStatus, renderPageContent, showItemModal, showPreferencesModal } from './ui.js';
 import { listenToCollection } from './firestore.js';
 
@@ -13,7 +11,6 @@ function initializeApp() {
 function initializeEventListeners() {
     document.getElementById('authBtn').addEventListener('click', showAuthModal);
     document.getElementById('signOutBtn').addEventListener('click', handleSignOut);
-    // L'écouteur pour le bouton des préférences est maintenant actif
     document.getElementById('preferencesBtn').addEventListener('click', showPreferencesModal);
 
     document.getElementById('modeSelector').addEventListener('click', e => {

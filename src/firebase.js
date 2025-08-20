@@ -13,16 +13,7 @@ try {
     db = getFirestore(app);
     functions = getFunctions(app);
     storage = getStorage(app);
-
-    enableIndexedDbPersistence(db)
-      .catch((err) => {
-        if (err.code == 'failed-precondition') {
-          console.warn("La persistance multi-onglets a échoué.");
-        } else if (err.code == 'unimplemented') {
-          console.warn("Le navigateur actuel ne supporte pas le mode hors ligne.");
-        }
-      });
-
+    enableIndexedDbPersistence(db).catch((err) => console.warn("Erreur de persistance:", err.code));
 } catch (e) {
     console.error("Erreur critique d'initialisation de Firebase:", e);
     document.body.innerHTML = `<div class="p-8 text-center text-red-500">Erreur critique de configuration Firebase. L'application ne peut pas démarrer.</div>`;

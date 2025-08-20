@@ -5,7 +5,8 @@ const state = {
   userPreferences: {
       theme: 'light',
       startupMode: 'perso',
-      nickname: ''
+      nickname: '',
+      hiddenModes: []
   },
   currentMode: 'perso',
   currentPageId: null,
