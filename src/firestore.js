@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, addDoc, where, runTransaction, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, addDoc, where, runTransaction, writeBatch, arrayUnion, getDocs, limit, orderBy, startAt, endAt } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { ref, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 import { db, storage } from './firebase.js';
 import { firebaseConfig, COLLECTIONS, NAV_CONFIG, SHAREABLE_TYPES } from './config.js';
@@ -31,5 +31,41 @@ export async function deleteDataItem(collectionName, id, filePath = null) { if (
 export async function updateCourseItems(docId, collectionName, action) { if (!state.userId) return; const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS ? `artifacts/${appId}/${collectionName}/${docId}` : `artifacts/${appId}/users/${state.userId}/${collectionName}/${docId}`; const docRef = doc(db, path); try { const docSnap = await getDoc(docRef); if (!docSnap.exists()) throw new Error("Document non trouvé !"); let currentItems = docSnap.data().items || []; switch (action.type) { case 'add': currentItems.push({ ...action.payload }); break; case 'toggle': if (currentItems[action.payload.index]) currentItems[action.payload.index].completed = action.payload.completed; break; case 'delete': currentItems.splice(action.payload.index, 1); break; } await updateDoc(docRef, { items: currentItems }); } catch (error) { showToast("Erreur de mise à jour de la liste.", "error"); } }
 export async function updateNickname(newNickname) { if (!state.userId || !newNickname || newNickname === state.userPreferences.nickname) { return { success: false, message: "Aucun changement nécessaire." }; } try { await runTransaction(db, async (transaction) => { const newNicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, newNickname); const docSnap = await transaction.get(newNicknameRef); if (docSnap.exists() && docSnap.data().userId !== state.userId) throw new Error("Ce pseudonyme est déjà utilisé."); if (state.userPreferences.nickname) { const oldNicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, state.userPreferences.nickname); transaction.delete(oldNicknameRef); } transaction.set(newNicknameRef, { userId: state.userId }); const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings'); transaction.update(prefRef, { nickname: newNickname }); }); state.userPreferences.nickname = newNickname; return { success: true, message: "Pseudonyme mis à jour !" }; } catch (error) { return { success: false, message: error.message || "Échec de la sauvegarde." }; } }
 async function findUserByNickname(nickname) { const nicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, nickname); const nicknameSnap = await getDoc(nicknameRef); if (!nicknameSnap.exists()) throw new Error("Pseudonyme non trouvé."); return nicknameSnap.data().userId; }
+
+/**
+ * Recherche les pseudonymes correspondant à un terme donné.
+ * @param {string} searchTerm - Le début du pseudonyme à rechercher.
+ * @returns {Promise<string[]>} Une liste des pseudonymes trouvés (max 5).
+ */
+export async function searchNicknames(searchTerm) {
+    if (!searchTerm) return [];
+    
+    // Convertir en minuscules pour la recherche (les pseudos sont stockés en minuscules)
+    const lowerSearchTerm = searchTerm.toLowerCase(); 
+    
+    const nicknamesRef = collection(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`);
+    
+    // La recherche est limitée aux 5 premiers résultats trouvés, triés par pseudonyme
+    // On utilise `startAt` et `endAt` pour simuler un "commence par"
+    const q = query(
+        nicknamesRef,
+        orderBy('__name__'), // __name__ fait référence à l'ID du document, qui est le pseudonyme lui-même
+        startAt(lowerSearchTerm),
+        endAt(lowerSearchTerm + '\uf8ff'), // \uf8ff est un caractère Unicode de très haute valeur
+        limit(5)
+    );
+
+    try {
+        const snapshot = await getDocs(q);
+        // Les IDs des documents sont les pseudonymes. On filtre le pseudonyme de l'utilisateur actuel.
+        return snapshot.docs
+            .map(doc => doc.id)
+            .filter(nickname => nickname !== state.userPreferences.nickname);
+    } catch (error) {
+        console.error("Erreur lors de la recherche des pseudonymes:", error);
+        return [];
+    }
+}
+
 export async function handleSharing(entry, originalType, targetNickname) { if (!SHAREABLE_TYPES.includes(originalType)) return showToast("Cet élément n'est pas partageable.", "error"); try { const targetUserId = await findUserByNickname(targetNickname); if (entry.isShared) { const sharedDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`, entry.id); await updateDoc(sharedDocRef, { members: arrayUnion(targetUserId) }); showToast("Utilisateur ajouté au partage !", "success"); } else { const batch = writeBatch(db); const originalDocRef = doc(db, `artifacts/${appId}/users/${state.userId}/${originalType}`, entry.id); const newSharedDocRef = doc(collection(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`)); const newDocData = { ...entry, ownerId: state.userId, members: [state.userId, targetUserId], originalType: originalType }; delete newDocData.id; batch.set(newSharedDocRef, newDocData); batch.delete(originalDocRef); await batch.commit(); showToast("Document partagé avec succès !", "success"); hideModal(); } } catch (error) { showToast(error.message, "error"); } }
 export async function unshareDocument(entry) { if (!entry.isShared || entry.ownerId !== state.userId) return showToast("Action non autorisée.", "error"); try { const batch = writeBatch(db); const sharedDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`, entry.id); const newPrivateDocRef = doc(collection(db, `artifacts/${appId}/users/${state.userId}/${entry.originalType}`)); const privateData = { ...entry }; delete privateData.id; delete privateData.ownerId; delete privateData.members; delete privateData.originalType; delete privateData.isShared; batch.set(newPrivateDocRef, privateData); batch.delete(sharedDocRef); await batch.commit(); showToast("Le partage a été arrêté.", "success"); hideModal(); } catch (error) { showToast("Erreur lors de l'arrêt du partage.", "error"); } }

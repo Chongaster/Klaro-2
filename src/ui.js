@@ -3,8 +3,8 @@ import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/fire
 import { db, storage } from './firebase.js';
 import state from './state.js';
 import { NAV_CONFIG, COLLECTIONS, firebaseConfig, COURSE_CATEGORIES, SHAREABLE_TYPES } from './config.js';
-import { addDataItem, updateDataItem, getNicknameByUserId, deleteDataItem, updateCourseItems, updateNickname, saveUserPreferences, handleSharing, unshareDocument } from './firestore.js';
-import { showToast } from './utils.js';
+import { addDataItem, updateDataItem, getNicknameByUserId, deleteDataItem, updateCourseItems, updateNickname, saveUserPreferences, handleSharing, unshareDocument, searchNicknames } from './firestore.js';
+import { showToast, debounce } from './utils.js';
 
 const DOMElements = { pageContent: document.getElementById('page-content'), mainNav: document.getElementById('main-nav'), modeSelector: document.getElementById('modeSelector'), modalOverlay: document.getElementById('modal-overlay'), modalContainer: document.getElementById('modal-container'), connectionStatus: document.getElementById('connection-status'), userEmailDisplay: document.getElementById('userEmailDisplay'), userNicknameDisplay: document.getElementById('userNicknameDisplay'), authBtn: document.getElementById('authBtn'), preferencesBtn: document.getElementById('preferencesBtn'), signOutBtn: document.getElementById('signOutBtn'), adminBtn: document.getElementById('adminBtn'), };
 
@@ -92,12 +92,72 @@ async function showSharingModal(entry, originalType) {
     }
 
     // Ajout du bouton de fermeture
-    const content = `<div class="flex-shrink-0 p-4 border-b dark:border-gray-700 flex justify-between items-center"><h3 class="text-xl font-bold">Gérer le Partage</h3><button class="modal-close-btn text-3xl font-bold">&times;</button></div><div class="p-6 md:p-8"><p class="mb-4">Document : <strong>${data.titre}</strong></p><div class="space-y-4"><div><label for="share-nickname-input" class="block text-sm font-medium mb-2">Pseudo de l'utilisateur à inviter</label><div class="flex gap-2"><input id="share-nickname-input" type="text" placeholder="Entrez le pseudo" class="${inputClasses}"><button id="share-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg flex-shrink-0">🤝 Inviter</button></div></div>${membersList}${(data.isShared && data.ownerId === state.userId) ? `<button id="unshare-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg mt-3 w-full">Arrêter le partage (Rendre privé)</button>` : ''}</div></div>`;
+    const content = `<div class="flex-shrink-0 p-4 border-b dark:border-gray-700 flex justify-between items-center"><h3 class="text-xl font-bold">Gérer le Partage</h3><button class="modal-close-btn text-3xl font-bold">&times;</button></div><div class="p-6 md:p-8"><p class="mb-4">Document : <strong>${data.titre}</strong></p><div class="space-y-4">
+        <div>
+            <label for="share-nickname-input" class="block text-sm font-medium mb-2">Pseudo de l'utilisateur à inviter</label>
+            <div class="relative flex gap-2">
+                <input id="share-nickname-input" type="text" placeholder="Commencez à taper un pseudo..." class="${inputClasses}">
+                <button id="share-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg flex-shrink-0">🤝 Inviter</button>
+                <div id="autocomplete-results" class="absolute z-10 w-[calc(100%-7rem)] bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg mt-10 max-h-40 overflow-y-auto hidden">
+                    <!-- Les résultats de la saisie semi-automatique iront ici -->
+                </div>
+            </div>
+        </div>
+        ${membersList}
+        ${(data.isShared && data.ownerId === state.userId) ? `<button id="unshare-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg mt-3 w-full">Arrêter le partage (Rendre privé)</button>` : ''}
+    </div></div>`;
     
     showModal(content, 'max-w-md');
+    
+    const nicknameInput = document.getElementById('share-nickname-input');
+    const autocompleteResults = document.getElementById('autocomplete-results');
+
+    // Fonction pour afficher les résultats
+    const displayAutocompleteResults = (nicknames) => {
+        autocompleteResults.innerHTML = '';
+        if (nicknames.length === 0) {
+            autocompleteResults.classList.add('hidden');
+            return;
+        }
+
+        nicknames.forEach(nickname => {
+            const item = document.createElement('div');
+            item.className = 'p-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200';
+            item.textContent = nickname;
+            item.dataset.nickname = nickname;
+            item.addEventListener('click', () => {
+                nicknameInput.value = nickname;
+                autocompleteResults.classList.add('hidden');
+                nicknameInput.focus();
+            });
+            autocompleteResults.appendChild(item);
+        });
+        autocompleteResults.classList.remove('hidden');
+    };
+
+    // Fonction de recherche débouncée
+    const handleSearch = debounce(async (e) => {
+        const searchTerm = e.target.value.trim();
+        if (searchTerm.length >= 2) { // Commence la recherche après 2 caractères
+            const results = await searchNicknames(searchTerm);
+            displayAutocompleteResults(results);
+        } else {
+            autocompleteResults.classList.add('hidden');
+        }
+    }, 300); // Délai de 300ms pour éviter de surcharger Firestore
+
+    nicknameInput.addEventListener('input', handleSearch);
+    
+    // Cacher les résultats si l'utilisateur clique en dehors du champ de saisie
+    document.addEventListener('click', (e) => {
+        if (!autocompleteResults.contains(e.target) && e.target !== nicknameInput) {
+            autocompleteResults.classList.add('hidden');
+        }
+    });
+
 
     document.getElementById('share-btn').addEventListener('click', () => {
-        const nickname = document.getElementById('share-nickname-input').value.trim().toLowerCase();
+        const nickname = nicknameInput.value.trim().toLowerCase();
         if (nickname) {
             // handleSharing gère si l'élément doit être converti en doc collaboratif ou si un membre doit être ajouté
             handleSharing(data, originalType, nickname);
