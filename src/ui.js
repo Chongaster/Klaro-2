@@ -122,15 +122,16 @@ async function showSharingModal(entry, originalType) {
  * Ouvre la modale pour ajouter un lien.
  * @param {object} entry - L'objet de données de la carte.
  * @param {string} originalType - Le type de collection d'origine.
+ * @param {function} refreshParentModal - Fonction de callback pour mettre à jour la modale parente.
  */
-function showLinkModal(entry, originalType) {
+function showLinkModal(entry, originalType, refreshParentModal) {
     const inputClasses = "w-full p-2 mt-1 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600";
     
     const content = `<div class="flex-shrink-0 p-4 border-b dark:border-gray-700 flex justify-between items-center"><h3 class="text-xl font-bold">Ajouter un Lien</h3><button class="modal-close-btn text-3xl font-bold">&times;</button></div><div class="p-6 space-y-4"><div><label class="block text-sm font-medium mb-2">Titre du lien</label><input type="text" id="link-title-input" class="${inputClasses}" placeholder="Nom du site, document, etc."></div><div><label class="block text-sm font-medium mb-2">URL (http:// ou https://)</label><input type="url" id="link-url-input" class="${inputClasses}" placeholder="https://..."></div></div><div class="p-4 border-t flex justify-end"><button id="add-link-btn" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg">Ajouter le lien</button></div>`;
 
     showModal(content, 'max-w-lg');
 
-    document.getElementById('add-link-btn').addEventListener('click', () => {
+    document.getElementById('add-link-btn').addEventListener('click', async () => {
         const title = document.getElementById('link-title-input').value.trim();
         const url = document.getElementById('link-url-input').value.trim();
 
@@ -139,20 +140,20 @@ function showLinkModal(entry, originalType) {
         }
         
         // Ajouter le préfixe si manquant
-        const sanitizedUrl = url.startsWith('http') ? url : `https://${url}`;
+        const sanitizedUrl = url.startsWith('http') || url.startsWith('https') ? url : `https://${url}`;
 
         // Mettre à jour Firestore : Ajouter le nouveau lien au tableau 'liens'
         const newLink = { titre: title, url: sanitizedUrl };
         const currentLinks = entry.liens || [];
         const updatedLinks = [...currentLinks, newLink];
 
-        updateDataItem(entry.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType, entry.id, { liens: updatedLinks });
+        await updateDataItem(entry.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType, entry.id, { liens: updatedLinks });
         
         showToast("Lien ajouté !", "success");
-        hideModal(); 
+        hideModal(); // Ferme la modale d'ajout de lien
         
-        // Réouvrir la modale principale pour voir la liste des liens mise à jour
-        setTimeout(() => showItemModal(entry, originalType), 100);
+        // Rafraîchit la modale parente avec la liste des liens mise à jour
+        refreshParentModal(updatedLinks);
     });
 }
 
@@ -167,14 +168,24 @@ function handleFileUpload(titre) { const file = document.getElementById('file-in
 export async function showItemModal(entry, type) { 
     const isNew = !entry; 
     // Initialiser liens comme un tableau vide si manquant
-    const data = isNew ? { titre: '', contenu: '', liens: [] } : { liens: [], ...entry }; 
-    data.isShared = type === COLLECTIONS.COLLABORATIVE_DOCS; 
+    const initialData = isNew ? { titre: '', contenu: '', liens: [] } : { liens: [], ...entry };
+    let data = { ...initialData }; // Utiliser une copie locale pour l'état de la modale avant la sauvegarde
+
     const originalType = data.originalType || type; 
     const isWallet = originalType === COLLECTIONS.WALLET; 
     const isCourses = originalType === COLLECTIONS.COURSES; 
     const isObjective = originalType === COLLECTIONS.OBJECTIFS; 
     const isContentBased = data.contenu !== undefined;
     const modalTitle = isNew ? `Ajouter un élément` : `Modifier : ${data.titre}`; 
+    
+    // Fonction interne pour rafraîchir le contenu de la modale (utilisée par showLinkModal)
+    const refreshModalContent = (newLinks) => {
+        data.liens = newLinks; // Met à jour l'état local de la modale
+        // Recrée le contenu de la modale avec les nouvelles données (simuler une réouverture)
+        // Note: C'est un peu "brut", mais efficace sans librairie de composants.
+        hideModal(); // On ferme la modale actuelle
+        showItemModal(data, type); // On la rouvre immédiatement avec les données mises à jour
+    };
     
     // Pour les mises à jour, la modale reste ouverte pour tous les types éditables directement (non Wallet/Courses)
     const canKeepOpen = isObjective || isContentBased;
@@ -226,9 +237,9 @@ export async function showItemModal(entry, type) {
         </button>`;
     } 
     
-    // Bouton d'export
+    // Bouton d'export (Couleur changée de orange à sky)
     if (!isNew && (isObjective || isContentBased)) {
-        exportButtonHTML = `<button id="export-doc-btn" class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-6 rounded-lg mr-2 transition-colors duration-150">
+        exportButtonHTML = `<button id="export-doc-btn" class="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-6 rounded-lg mr-2 transition-colors duration-150">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block mr-1"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>
             Google Doc
         </button>`;
@@ -275,7 +286,8 @@ export async function showItemModal(entry, type) {
     document.getElementById('insert-link-btn')?.addEventListener('click', (e) => {
         e.preventDefault();
         hideModal(); // Fermer la modale d'édition avant d'ouvrir celle du lien
-        setTimeout(() => showLinkModal(data, originalType), 100);
+        // On passe la fonction de rafraîchissement
+        setTimeout(() => showLinkModal(data, originalType, refreshModalContent), 100);
     });
     
     // Gestionnaire pour supprimer un lien
@@ -290,9 +302,8 @@ export async function showItemModal(entry, type) {
                 await updateDataItem(data.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType, entry.id, { liens: currentLinks });
                 showToast("Lien supprimé.", 'success');
                 
-                // Réouvrir la modale d'édition avec les données à jour
-                hideModal();
-                setTimeout(() => showItemModal({ ...data, liens: currentLinks }, type), 100);
+                // Rafraîchir la modale d'édition avec les données à jour
+                refreshModalContent(currentLinks);
             }
         });
     });
@@ -393,7 +404,7 @@ export async function showItemModal(entry, type) {
             dataToSave = { 
                 titre: newTitre, 
                 contenu: document.getElementById('modal-contenu').innerHTML,
-                liens: data.liens || [] // Les liens sont gérés par la modale showLinkModal, on les conserve ici
+                liens: data.liens || [] // Conserver les liens mis à jour par refreshModalContent
             }; 
         } 
         
