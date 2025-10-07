@@ -14,7 +14,7 @@ export const NAV_CONFIG = {
   pro: [
       { id: 'objectifs', title: 'Objectifs', icon: '🎯', type: COLLECTIONS.OBJECTIFS, description: 'Suivez vos objectifs principaux.' },
       { id: 'actions', title: 'TO DO', icon: '📝', type: COLLECTIONS.ACTIONS, description: 'Gérez vos tâches professionnelles.' },
-      //{ id: 'actionsTerminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.ACTIONS, description: 'Consultez vos actions achevées.' },
+      { id: 'actionsTerminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.ACTIONS, description: 'Consultez vos actions achevées.' },
       { id: 'notesReunion', title: 'Notes', icon: '📋', type: COLLECTIONS.NOTES_REUNION, description: 'Archivez vos notes de réunion.' },
       { id: 'sharedWithMePro', title: 'Partagés', icon: '🤝', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents professionnels partagés.' }
   ],
