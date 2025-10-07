@@ -23,8 +23,8 @@ async function createCardElement(entry, pageConfig) { const cardTemplate = docum
         const summaryText = (tempDiv.textContent || "").substring(0, 100);
         summaryEl.textContent = `${summaryText}${tempDiv.textContent.length > 100 ? '...' : ''}`;
 
-        // Afficher les liens dans la carte
-        const linkCount = tempDiv.querySelectorAll('a').length;
+        // Afficher les liens enregistrés séparément
+        const linkCount = (entry.liens || []).length;
         if (linkCount > 0) {
             const linkDisplay = document.createElement('div');
             linkDisplay.className = 'mt-2 text-xs text-blue-600 dark:text-blue-400';
@@ -41,16 +41,24 @@ export async function renderPageContent() { const container = DOMElements.pageCo
  * facilement importable dans Google Docs.
  * @param {string} title - Le titre du document.
  * @param {string} htmlContent - Le contenu formaté en HTML.
+ * @param {Array<Object>} liens - Tableau des liens associés.
  */
-function exportToGoogleDoc(title, htmlContent) {
+function exportToGoogleDoc(title, htmlContent, liens = []) {
     // Nettoyer le HTML pour une meilleure intégration dans Google Doc (moins de classes Tailwind)
     const cleanerContent = htmlContent
         .replace(/<div[^>]*>/g, '<div>') // Simplifier les div
         .replace(/<span[^>]*>/g, '<span>') // Simplifier les span
         .replace(/style="[^"]*"/g, ''); // Supprimer les styles inline
 
+    let linksHtml = '';
+    if (liens.length > 0) {
+        linksHtml = '<h2>Liens Associés</h2><ul>';
+        linksHtml += liens.map(link => `<li><a href="${link.url}" target="_blank">${link.titre}</a> (${link.url})</li>`).join('');
+        linksHtml += '</ul>';
+    }
+
     // Créer un blob pour le document HTML
-    const html = `<!DOCTYPE html><html><head><title>${title}</title></head><body><h1>${title}</h1>${cleanerContent}</body></html>`;
+    const html = `<!DOCTYPE html><html><head><title>${title}</title></head><body><h1>${title}</h1>${cleanerContent}${linksHtml}</body></html>`;
     const blob = new Blob([html], { type: 'text/html' });
 
     // Créer un lien téléchargeable
@@ -64,6 +72,89 @@ function exportToGoogleDoc(title, htmlContent) {
     showToast("Fichier HTML généré. Ouvrez-le dans Google Docs pour l'importer.", "info");
 }
 
+/**
+ * Ouvre une modale pour gérer le partage (ajouter un membre).
+ * @param {object} entry - L'objet de données à partager.
+ * @param {string} originalType - Le type de collection d'origine.
+ */
+async function showSharingModal(entry, originalType) {
+    const data = entry;
+    let membersList = 'Aucun membre partagé.';
+    const inputClasses = "w-full p-2 mt-1 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600";
+    
+    // Afficher la liste des membres si le document est déjà partagé
+    if (data.isShared) {
+        const nicknames = [];
+        for (const memberId of data.members) {
+            nicknames.push(await getNicknameByUserId(memberId));
+        }
+        membersList = `<p class="text-sm text-gray-500 mt-2">Partagé avec : <span class="font-medium text-gray-700 dark:text-gray-300">${nicknames.join(', ')}</span></p>`;
+    }
+
+    // Ajout du bouton de fermeture
+    const content = `<div class="flex-shrink-0 p-4 border-b dark:border-gray-700 flex justify-between items-center"><h3 class="text-xl font-bold">Gérer le Partage</h3><button class="modal-close-btn text-3xl font-bold">&times;</button></div><div class="p-6 md:p-8"><p class="mb-4">Document : <strong>${data.titre}</strong></p><div class="space-y-4"><div><label for="share-nickname-input" class="block text-sm font-medium mb-2">Pseudo de l'utilisateur à inviter</label><div class="flex gap-2"><input id="share-nickname-input" type="text" placeholder="Entrez le pseudo" class="${inputClasses}"><button id="share-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg flex-shrink-0">🤝 Inviter</button></div></div>${membersList}${(data.isShared && data.ownerId === state.userId) ? `<button id="unshare-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg mt-3 w-full">Arrêter le partage (Rendre privé)</button>` : ''}</div></div>`;
+    
+    showModal(content, 'max-w-md');
+
+    document.getElementById('share-btn').addEventListener('click', () => {
+        const nickname = document.getElementById('share-nickname-input').value.trim().toLowerCase();
+        if (nickname) {
+            // handleSharing gère si l'élément doit être converti en doc collaboratif ou si un membre doit être ajouté
+            handleSharing(data, originalType, nickname);
+            // La modale se ferme dans handleSharing si c'est le premier partage. Sinon, elle reste ouverte.
+        } else {
+             showToast("Veuillez entrer un pseudo.", "error");
+        }
+    });
+
+    const unshareBtn = document.getElementById('unshare-btn');
+    if (unshareBtn) {
+        unshareBtn.addEventListener('click', async () => {
+            if (await showConfirmationModal("Arrêter le partage rendra ce document privé. Continuer ?")) {
+                unshareDocument(data);
+                hideModal(); // On ferme après l'arrêt du partage
+            }
+        });
+    }
+}
+
+/**
+ * Ouvre la modale pour ajouter un lien.
+ * @param {object} entry - L'objet de données de la carte.
+ * @param {string} originalType - Le type de collection d'origine.
+ */
+function showLinkModal(entry, originalType) {
+    const inputClasses = "w-full p-2 mt-1 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600";
+    
+    const content = `<div class="flex-shrink-0 p-4 border-b dark:border-gray-700 flex justify-between items-center"><h3 class="text-xl font-bold">Ajouter un Lien</h3><button class="modal-close-btn text-3xl font-bold">&times;</button></div><div class="p-6 space-y-4"><div><label class="block text-sm font-medium mb-2">Titre du lien</label><input type="text" id="link-title-input" class="${inputClasses}" placeholder="Nom du site, document, etc."></div><div><label class="block text-sm font-medium mb-2">URL (http:// ou https://)</label><input type="url" id="link-url-input" class="${inputClasses}" placeholder="https://..."></div></div><div class="p-4 border-t flex justify-end"><button id="add-link-btn" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg">Ajouter le lien</button></div>`;
+
+    showModal(content, 'max-w-lg');
+
+    document.getElementById('add-link-btn').addEventListener('click', () => {
+        const title = document.getElementById('link-title-input').value.trim();
+        const url = document.getElementById('link-url-input').value.trim();
+
+        if (!title || !url) {
+            return showToast("Le titre et l'URL sont obligatoires.", "error");
+        }
+        
+        // Ajouter le préfixe si manquant
+        const sanitizedUrl = url.startsWith('http') ? url : `https://${url}`;
+
+        // Mettre à jour Firestore : Ajouter le nouveau lien au tableau 'liens'
+        const newLink = { titre: title, url: sanitizedUrl };
+        const currentLinks = entry.liens || [];
+        const updatedLinks = [...currentLinks, newLink];
+
+        updateDataItem(entry.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType, entry.id, { liens: updatedLinks });
+        
+        showToast("Lien ajouté !", "success");
+        hideModal(); 
+        
+        // Réouvrir la modale principale pour voir la liste des liens mise à jour
+        setTimeout(() => showItemModal(entry, originalType), 100);
+    });
+}
 
 function renderCourseItems(items = [], docId, collectionName) { const container = document.getElementById('course-items-list'); if (!container) return; const grouped = items.reduce((acc, item, index) => { const category = item.category || 'Autre'; if (!acc[category]) acc[category] = []; acc[category].push({ ...item, originalIndex: index }); return acc; }, {}); const sortedCategories = Object.keys(grouped).sort(); container.innerHTML = sortedCategories.map(category => `<div class="mt-4"><h4 class="text-lg font-bold text-blue-600 dark:text-blue-400 border-b-2 pb-1 mb-2">${category}</h4>${grouped[category].map(item => `<div class="flex items-center justify-between p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"><label class="flex items-center cursor-pointer flex-grow"><input type="checkbox" data-index="${item.originalIndex}" ${item.completed ? 'checked' : ''} class="h-5 w-5 rounded border-gray-300 text-blue-600"><span class="ml-3 ${item.completed ? 'line-through text-gray-400' : ''}">${item.text}</span></label><button data-action="delete-item" data-index="${item.originalIndex}" class="text-gray-400 hover:text-red-500 text-xl px-2">🗑️</button></div>`).join('')}</div>`).join(''); container.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.addEventListener('change', (e) => { updateCourseItems(docId, collectionName, { type: 'toggle', payload: { index: parseInt(e.target.dataset.index), completed: e.target.checked } }); }); }); container.querySelectorAll('button[data-action="delete-item"]').forEach(btn => { btn.addEventListener('click', (e) => { updateCourseItems(docId, collectionName, { type: 'delete', payload: { index: parseInt(e.currentTarget.dataset.index) } }); }); }); }
 function handleFileUpload(titre) { const file = document.getElementById('file-input').files[0]; if (!file) return showToast("Veuillez sélectionner un fichier.", "error"); const saveBtn = document.getElementById('save-btn'); const progressBar = document.getElementById('upload-progress-bar'); saveBtn.disabled = true; saveBtn.textContent = 'Envoi...'; document.getElementById('upload-progress-container').classList.remove('hidden'); const filePath = `user_files/${state.userId}/${Date.now()}_${file.name}`; const uploadTask = uploadBytesResumable(ref(storage, filePath), file); uploadTask.on('state_changed', (snapshot) => progressBar.style.width = `${(snapshot.bytesTransferred / snapshot.totalBytes) * 100}%`, (error) => { showToast("Échec de l'envoi.", "error"); saveBtn.disabled = false; }, async () => { const downloadURL = await getDownloadURL(uploadTask.snapshot.ref); addDataItem(COLLECTIONS.WALLET, { titre, fileName: file.name, fileUrl: downloadURL, filePath }); hideModal(); }); }
@@ -75,16 +166,18 @@ function handleFileUpload(titre) { const file = document.getElementById('file-in
  */
 export async function showItemModal(entry, type) { 
     const isNew = !entry; 
-    const data = isNew ? { titre: '' } : entry; 
+    // Initialiser liens comme un tableau vide si manquant
+    const data = isNew ? { titre: '', contenu: '', liens: [] } : { liens: [], ...entry }; 
     data.isShared = type === COLLECTIONS.COLLABORATIVE_DOCS; 
     const originalType = data.originalType || type; 
     const isWallet = originalType === COLLECTIONS.WALLET; 
     const isCourses = originalType === COLLECTIONS.COURSES; 
     const isObjective = originalType === COLLECTIONS.OBJECTIFS; 
+    const isContentBased = data.contenu !== undefined;
     const modalTitle = isNew ? `Ajouter un élément` : `Modifier : ${data.titre}`; 
     
-    // Flag pour savoir si la carte doit rester ouverte après l'enregistrement (pour les mises à jour)
-    let keepOpen = false; 
+    // Pour les mises à jour, la modale reste ouverte pour tous les types éditables directement (non Wallet/Courses)
+    const canKeepOpen = isObjective || isContentBased;
 
     let formContent = ''; 
     const inputClasses = "w-full p-2 mt-1 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600"; 
@@ -97,13 +190,17 @@ export async function showItemModal(entry, type) {
         const categoryOptions = COURSE_CATEGORIES.map(cat => `<option value="${cat}">${cat}</option>`).join(''); 
         formContent = `<div class="mb-4"><label class="text-sm font-medium">Titre de la liste</label><input id="modal-titre" type="text" value="${data.titre || ''}" class="${inputClasses}"></div><div id="course-items-list" class="mb-4 max-h-60 overflow-y-auto"></div>` + (!isNew ? `<div class="flex flex-col md:flex-row gap-2 mt-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg"><input type="text" id="new-course-item-input" placeholder="Ajouter un article..." class="${inputClasses}"><select id="new-course-category-select" class="p-3 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600">${categoryOptions}</select><button id="add-course-item-btn" class="bg-blue-600 text-white font-bold px-5 rounded-lg">Ajouter</button></div>` : `<p class="text-center text-gray-500">Enregistrez la liste pour ajouter des articles.</p>`); 
     } else if (isObjective) { 
-        // Si c'est un objectif existant, on garde la modale ouverte après la mise à jour
-        if (!isNew) keepOpen = true; 
         formContent = `<div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3"><div class="md:col-span-2"><label class="text-sm font-medium">Titre</label><input id="modal-titre" type="text" value="${data.titre || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Poids (%)</label><input id="modal-poids" type="number" min="0" max="100" value="${data.poids || 0}" class="${inputClasses}"></div><div class="md:col-span-2"><label class="text-sm font-medium">Description</label><textarea id="modal-description" class="${textareaClasses}">${data.description || ''}</textarea></div><div class="md:col-span-2 space-y-2"><div><label class="text-sm font-medium">Échelle Mini</label><input id="modal-echelle-min" type="text" value="${data.echelle?.min || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Échelle Cible</label><input id="modal-echelle-cible" type="text" value="${data.echelle?.cible || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Échelle Max</label><input id="modal-echelle-max" type="text" value="${data.echelle?.max || ''}" class="${inputClasses}"></div></div><div class="md:col-span-2"><label class="text-sm font-medium">Avancement (Description)</label><textarea id="modal-avancement" class="${textareaClasses}">${data.avancement || ''}</textarea></div><div class="md:col-span-2"><label class="text-sm font-medium">Statut</label><div class="flex gap-4 mt-2"><label class="flex items-center gap-2"><input type="radio" name="statut" value="min" ${data.statut === 'min' ? 'checked' : ''}> Mini (Rouge)</label><label class="flex items-center gap-2"><input type="radio" name="statut" value="cible" ${data.statut === 'cible' || !data.statut ? 'checked' : ''}> Cible (Jaune)</label><label class="flex items-center gap-2"><input type="radio" name="statut" value="max" ${data.statut === 'max' ? 'checked' : ''}> Max (Vert)</label></div></div></div>`; 
-    } else { 
+    } else if (isContentBased) { 
         // Logique pour les notes et les actions (contenu + liens)
-        // Si c'est une note/action existante, on garde la modale ouverte après la mise à jour
-        if (!isNew) keepOpen = true; 
+        
+        // Affichage des liens dissociés
+        const liens = data.liens || [];
+
+        const linksListHTML = liens.length > 0
+            ? `<div class="mt-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg"><h4 class="text-sm font-bold mb-2">🔗 Liens associés (${liens.length})</h4><ul class="space-y-1">${liens.map((link, index) => `<li class="flex justify-between items-center text-xs truncate"><a href="${link.url}" target="_blank" class="text-blue-500 hover:underline">${link.titre}</a><button data-link-index="${index}" data-action="delete-link" class="text-gray-400 hover:text-red-500 text-lg px-2" title="Supprimer le lien">❌</button></li>`).join('')}</ul></div>`
+            : '';
+
         formContent = `<div class="mb-4"><label class="text-sm font-medium">Titre</label><input id="modal-titre" type="text" value="${data.titre || ''}" class="${inputClasses}"></div>
             <div class="flex flex-col">
                 <label class="text-sm font-medium mb-1">Contenu</label>
@@ -111,29 +208,26 @@ export async function showItemModal(entry, type) {
                     <button type="button" data-command="bold" class="font-bold w-8 h-8 rounded hover:bg-gray-200" title="Gras">G</button>
                     <button type="button" data-command="underline" class="underline w-8 h-8 rounded hover:bg-gray-200" title="Souligner">S</button>
                     <button type="button" data-command="strikeThrough" class="line-through w-8 h-8 rounded hover:bg-gray-200" title="Barrer">B</button>
-                    <button type="button" id="insert-link-btn" class="w-8 h-8 rounded hover:bg-gray-200" title="Insérer Lien">🔗</button>
+                    <button type="button" id="insert-link-btn" class="w-8 h-8 rounded hover:bg-gray-200" title="Ajouter Lien">🔗</button>
                 </div>
                 <div id="modal-contenu" contenteditable="true" class="w-full p-3 mt-1 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600 min-h-[150px]">${data.contenu || ''}</div>
+                ${linksListHTML}
             </div>`; 
     } 
 
-    let shareSectionHTML = ''; 
+    let sharingButtonHTML = '';
     let exportButtonHTML = '';
 
+    // Bouton de partage
     if (!isNew && SHAREABLE_TYPES.includes(originalType)) { 
-        let membersList = ''; 
-        if (data.isShared) { 
-            const nicknames = []; 
-            for (const memberId of data.members) { 
-                nicknames.push(await getNicknameByUserId(memberId)); 
-            } 
-            membersList = `<p class="text-xs text-gray-500 mt-2">Partagé avec : ${nicknames.join(', ')}</p>`; 
-        } 
-        shareSectionHTML = `<div class="mt-6 p-4 border dark:border-gray-600 rounded-lg"><h4 class="font-bold mb-2">Partage</h4><div class="flex gap-2"><input id="share-nickname-input" type="text" placeholder="Pseudo de l'utilisateur" class="${inputClasses}"><button id="share-btn" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">🤝 Inviter</button></div>${membersList}${(data.isShared && data.ownerId === state.userId) ? `<button id="unshare-btn" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg mt-3 w-full">Arrêter le partage</button>` : ''}</div>`; 
+        sharingButtonHTML = `<button id="open-share-modal-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-lg mr-2 transition-colors duration-150">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block mr-1"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
+            Partager
+        </button>`;
     } 
     
-    // Bouton d'export pour les types basés sur 'contenu' ou 'objectifs'
-    if (!isNew && (isObjective || data.contenu)) {
+    // Bouton d'export
+    if (!isNew && (isObjective || isContentBased)) {
         exportButtonHTML = `<button id="export-doc-btn" class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-6 rounded-lg mr-2 transition-colors duration-150">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block mr-1"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>
             Google Doc
@@ -141,7 +235,7 @@ export async function showItemModal(entry, type) {
     }
 
     // --- Affichage de la modale ---
-    showModal(`<div class="flex-shrink-0 p-4 border-b dark:border-gray-700 flex justify-between items-center"><h3 class="text-xl font-bold modal-title">${modalTitle}</h3><button class="modal-close-btn text-3xl font-bold">&times;</button></div><div class="p-4 flex-grow overflow-y-auto">${formContent}${shareSectionHTML}</div><div class="flex-shrink-0 p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-between items-center"><div class="flex items-center">${!isNew ? `<button id="delete-btn" class="bg-red-600 text-white font-bold py-2 px-6 rounded-lg mr-2">🗑️ Supprimer</button>` : '<div></div>'}${exportButtonHTML}</div><button id="save-btn" class="bg-green-600 text-white font-bold py-2 px-6 rounded-lg transition-colors duration-150">💾 ${isNew ? 'Enregistrer' : 'Mettre à jour'}</button></div>`, 'max-w-2xl'); 
+    showModal(`<div class="flex-shrink-0 p-4 border-b dark:border-gray-700 flex justify-between items-center"><h3 class="text-xl font-bold modal-title">${modalTitle}</h3><button class="modal-close-btn text-3xl font-bold">&times;</button></div><div class="p-4 flex-grow overflow-y-auto">${formContent}</div><div class="flex-shrink-0 p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-between items-center"><div class="flex items-center">${!isNew ? `<button id="delete-btn" class="bg-red-600 text-white font-bold py-2 px-6 rounded-lg mr-2">🗑️ Supprimer</button>` : '<div></div>'}${sharingButtonHTML}${exportButtonHTML}</div><button id="save-btn" class="bg-green-600 text-white font-bold py-2 px-6 rounded-lg transition-colors duration-150">💾 ${isNew ? 'Enregistrer' : 'Mettre à jour'}</button></div>`, 'max-w-2xl'); 
     
     
     if (isCourses && !isNew) { 
@@ -169,29 +263,41 @@ export async function showItemModal(entry, type) {
         }); 
     } 
     
-    // Gestionnaire de liens pour l'éditeur de contenu
-    document.getElementById('insert-link-btn')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        const url = prompt("Entrez l'URL du lien :");
-        if (url) {
-            // Rendre le lien cliquable dans l'éditeur (nécessaire car contenteditable bloque execCommand pour certains navigateurs)
-            const selection = window.getSelection();
-            if (selection.rangeCount > 0) {
-                const range = selection.getRangeAt(0);
-                const a = document.createElement('a');
-                a.href = url;
-                a.textContent = selection.toString() || url; // Utiliser le texte sélectionné ou l'URL comme texte du lien
-                range.deleteContents();
-                range.insertNode(a);
-            } else {
-                // Si rien n'est sélectionné, insérer le lien complet
-                document.execCommand('insertHTML', false, `<a href="${url}" target="_blank">${url}</a>`);
-            }
-            document.getElementById('modal-contenu')?.focus();
-        }
+    // Gestionnaire du bouton Partager qui ouvre la modale de partage
+    document.getElementById('open-share-modal-btn')?.addEventListener('click', () => {
+        // Fermer la modale d'édition avant d'ouvrir la modale de partage pour éviter les conflits
+        hideModal();
+        // Attendre un court instant pour s'assurer que l'ancienne modale est fermée
+        setTimeout(() => showSharingModal(data, originalType), 100);
     });
 
-    // Gestionnaire de la barre d'outils de formatage
+    // Gestionnaire du bouton "Ajouter Lien" -> Ouvre la modale dédiée
+    document.getElementById('insert-link-btn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        hideModal(); // Fermer la modale d'édition avant d'ouvrir celle du lien
+        setTimeout(() => showLinkModal(data, originalType), 100);
+    });
+    
+    // Gestionnaire pour supprimer un lien
+    document.querySelectorAll('button[data-action="delete-link"]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const index = parseInt(e.currentTarget.dataset.linkIndex);
+            if (await showConfirmationModal('Voulez-vous vraiment supprimer ce lien ?')) {
+                const currentLinks = [...(data.liens || [])];
+                currentLinks.splice(index, 1);
+                
+                // Mettre à jour dans Firestore
+                await updateDataItem(data.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType, entry.id, { liens: currentLinks });
+                showToast("Lien supprimé.", 'success');
+                
+                // Réouvrir la modale d'édition avec les données à jour
+                hideModal();
+                setTimeout(() => showItemModal({ ...data, liens: currentLinks }, type), 100);
+            }
+        });
+    });
+
+    // Gestionnaire de la barre d'outils de formatage (pour contenu)
     document.querySelectorAll('.formatting-toolbar button[data-command]').forEach(button => { 
         button.addEventListener('click', (e) => { 
             e.preventDefault(); 
@@ -206,6 +312,7 @@ export async function showItemModal(entry, type) {
         if (!titre.trim()) return showToast("Le titre est obligatoire pour l'exportation.", "error");
         
         let contentToExport = '';
+        let liensToExport = [];
 
         if (isObjective) {
              // Récupérer les données actuelles de l'objectif dans la modale
@@ -237,15 +344,16 @@ export async function showItemModal(entry, type) {
                 <p><strong>Avancement:</strong> ${currentData.avancement.replace(/\n/g, '<br>')}</p>
              `;
 
-        } else if (document.getElementById('modal-contenu')) {
+        } else if (isContentBased) {
             // Pour les notes et actions
             contentToExport = document.getElementById('modal-contenu').innerHTML;
+            liensToExport = data.liens || [];
         } else {
             showToast("Impossible d'exporter ce type d'élément.", "error");
             return;
         }
 
-        exportToGoogleDoc(titre, contentToExport);
+        exportToGoogleDoc(titre, contentToExport, liensToExport);
     });
 
     document.getElementById('save-btn').addEventListener('click', async () => { 
@@ -277,11 +385,16 @@ export async function showItemModal(entry, type) {
                 }, 
                 avancement: document.getElementById('modal-avancement').value, 
                 statut: document.querySelector('input[name="statut"]:checked')?.value || 'cible', 
+                liens: data.liens || [] // Conserver les liens existants même pour l'objectif
             }; 
         } else if (isCourses) { 
             dataToSave = { titre: newTitre, items: data.items || [] }; 
-        } else { 
-            dataToSave = { titre: newTitre, contenu: document.getElementById('modal-contenu').innerHTML }; 
+        } else if (isContentBased) { 
+            dataToSave = { 
+                titre: newTitre, 
+                contenu: document.getElementById('modal-contenu').innerHTML,
+                liens: data.liens || [] // Les liens sont gérés par la modale showLinkModal, on les conserve ici
+            }; 
         } 
         
         try {
@@ -326,18 +439,6 @@ export async function showItemModal(entry, type) {
                 hideModal(); 
             } 
         }); 
-        if (SHAREABLE_TYPES.includes(originalType)) { 
-            document.getElementById('share-btn').addEventListener('click', () => { 
-                const nickname = document.getElementById('share-nickname-input').value.trim().toLowerCase(); 
-                if (nickname) handleSharing(data, originalType, nickname); 
-            }); 
-            const unshareBtn = document.getElementById('unshare-btn'); 
-            if (unshareBtn) { 
-                unshareBtn.addEventListener('click', async () => { 
-                    if (await showConfirmationModal("Arrêter le partage rendra ce document privé. Continuer ?")) unshareDocument(data); 
-                }); 
-            } 
-        } 
     } 
 }
 export function showPreferencesModal() { const hiddenModes = state.userPreferences.hiddenModes || []; const content = `<div class="flex-shrink-0 p-4 border-b flex justify-between items-center"><h3 class="text-xl font-bold">Préférences</h3><button class="modal-close-btn text-3xl font-bold">&times;</button></div><div class="p-6 space-y-6 overflow-y-auto"><div><label class="block text-lg font-medium mb-2">Votre Pseudonyme</label><div class="flex gap-2"><input type="text" id="nickname-input" value="${state.userPreferences.nickname || ''}" class="w-full p-2 mt-1 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600"><button id="save-nickname-btn" class="bg-blue-600 text-white px-4 rounded-lg">Sauvegarder</button></div></div><div><label class="block text-lg font-medium mb-2">Thème</label><div class="flex gap-4"><label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer"><input type="radio" name="theme" value="light" ${state.userPreferences.theme === 'light' ? 'checked' : ''}> ☀️ Clair</label><label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer"><input type="radio" name="theme" value="dark" ${state.userPreferences.theme === 'dark' ? 'checked' : ''}> 🌙 Sombre</label></div></div><div><label class="block text-lg font-medium mb-2">Mode de démarrage</label><div class="flex gap-4"><label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer"><input type="radio" name="startupMode" value="pro" ${state.userPreferences.startupMode === 'pro' ? 'checked' : ''}> 🏢 Pro</label><label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer"><input type="radio" name="startupMode" value="perso" ${state.userPreferences.startupMode === 'perso' ? 'checked' : ''}> 🏠 Perso</label></div></div><div><label class="block text-lg font-medium mb-2">Sections Visibles</label><div class="space-y-2"><label class="flex items-center gap-2"><input type="checkbox" name="visibleMode" value="pro" ${!hiddenModes.includes('pro') ? 'checked' : ''}> Afficher la section 🏢 Pro</label><label class="flex items-center gap-2"><input type="checkbox" name="visibleMode" value="perso" ${!hiddenModes.includes('perso') ? 'checked' : ''}> Afficher la section 🏠 Perso</label></div></div><div><label class="block text-lg font-medium mb-2">Votre ID Utilisateur</label><div class="flex items-center justify-between p-3 bg-gray-100 dark:bg-gray-700 rounded-lg"><span class="text-sm font-mono truncate">${state.userId}</span><button id="copy-user-id-btn" class="p-1" title="Copier"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></div></div></div>`; showModal(content, 'max-w-md'); document.querySelector('#save-nickname-btn').addEventListener('click', async () => { const newNickname = document.querySelector('#nickname-input').value.trim().toLowerCase(); const result = await updateNickname(newNickname); showToast(result.message, result.success ? 'success' : 'error'); if (result.success) DOMElements.userNicknameDisplay.textContent = newNickname; }); document.querySelectorAll('input[name="theme"]').forEach(radio => { radio.addEventListener('change', (e) => { const newTheme = e.target.value; applyTheme(newTheme); state.userPreferences.theme = newTheme; saveUserPreferences({ theme: newTheme }); }); }); document.querySelectorAll('input[name="startupMode"]').forEach(radio => { radio.addEventListener('change', (e) => { const newMode = e.target.value; state.userPreferences.startupMode = newMode; saveUserPreferences({ startupMode: newMode }); }); }); document.querySelectorAll('input[name="visibleMode"]').forEach(checkbox => { checkbox.addEventListener('change', () => { const hidden = []; document.querySelectorAll('input[name="visibleMode"]:not(:checked)').forEach(cb => hidden.push(cb.value)); state.userPreferences.hiddenModes = hidden; saveUserPreferences({ hiddenModes: hidden }); updateAuthUI({ email: state.userEmail }); }); }); document.querySelector('#copy-user-id-btn').addEventListener('click', () => { navigator.clipboard.writeText(state.userId); showToast("ID Utilisateur copié !", "info"); }); }
