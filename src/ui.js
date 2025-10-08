@@ -21,6 +21,9 @@ const DOMElements = {
     adminBtn: document.getElementById('adminBtn'), 
 };
 
+// NOUVEAU: Indicateur pour s'assurer que le check des tâches en retard n'est fait qu'une fois par session.
+let hasCheckedOverdueTasks = false;
+
 // --- GESTION DES MODALES ---
 export function showModal(content, maxWidthClass = 'max-w-xl') { 
     // Sécurité: vérifier si les éléments existent
@@ -49,6 +52,83 @@ export function showConfirmationModal(message) {
         document.getElementById('confirm-no').onclick = () => { hideModal(); resolve(false); }; 
     }); 
 }
+
+// NOUVEAU: Fonction pour afficher la modale des tâches en retard
+function showOverdueTasksModal(overdueTasks) {
+    if (overdueTasks.length === 0) return;
+
+    const listItems = overdueTasks.map(task => {
+        const dateObj = new Date(task.dueDate);
+        const dueDateDisplay = dateObj.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+        const collectionTitle = task.originalType === COLLECTIONS.ACTIONS ? 'Action Pro' : 'TODO Perso';
+
+        return `
+            <li class="p-3 border-b dark:border-gray-700 last:border-b-0">
+                <p class="font-semibold text-red-500 text-base">${task.titre}</p>
+                <p class="text-sm text-gray-700 dark:text-gray-300">
+                    <span class="font-medium">${collectionTitle}</span> - Échéance: <span class="font-bold">${dueDateDisplay}</span>
+                </p>
+            </li>
+        `;
+    }).join('');
+
+    const content = `
+        <div class="flex-shrink-0 p-4 border-b dark:border-gray-700 flex justify-between items-center bg-red-100 dark:bg-red-900 rounded-t-2xl">
+            <h3 class="text-xl font-bold text-red-700 dark:text-red-300">🚨 Tâches en Retard (${overdueTasks.length})</h3>
+            <button class="modal-close-btn text-3xl font-bold text-red-700 dark:text-red-300">&times;</button>
+        </div>
+        <div class="p-0 max-h-[70vh] overflow-y-auto">
+            <ul class="divide-y divide-gray-200 dark:divide-gray-700">
+                ${listItems}
+            </ul>
+        </div>
+        <div class="flex-shrink-0 p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-end">
+            <button class="modal-close-btn bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">Fermer</button>
+        </div>
+    `;
+    showModal(content, 'max-w-lg');
+}
+
+
+// NOUVEAU: Fonction de vérification des tâches en retard
+export function checkOverdueTasksOnDataLoad() {
+    if (hasCheckedOverdueTasks) return;
+
+    // Aplatir et filtrer toutes les données pertinentes (TODO et ACTIONS)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Comparer uniquement la date, ignorer l'heure
+
+    // 1. Récupérer toutes les tâches privées (TODO et ACTIONS)
+    const privateTodos = (state.privateDataCache[COLLECTIONS.TODO] || [])
+        .filter(task => !task.isCompleted && task.dueDate)
+        .map(task => ({ ...task, originalType: COLLECTIONS.TODO }));
+    const privateActions = (state.privateDataCache[COLLECTIONS.ACTIONS] || [])
+        .filter(task => !task.isCompleted && task.dueDate)
+        .map(task => ({ ...task, originalType: COLLECTIONS.ACTIONS }));
+    
+    // 2. Récupérer toutes les tâches partagées (filtrées par type d'origine)
+    const sharedTodosAndActions = state.sharedDataCache
+        .filter(doc => (doc.originalType === COLLECTIONS.TODO || doc.originalType === COLLECTIONS.ACTIONS) && !doc.isCompleted && doc.dueDate)
+        .map(task => ({ ...task, originalType: task.originalType }));
+
+    const allTasks = [...privateTodos, ...privateActions, ...sharedTodosAndActions];
+
+    const overdueTasks = allTasks.filter(task => {
+        // La tâche est déjà filtrée pour avoir un dueDate et ne pas être complétée.
+        const taskDate = new Date(task.dueDate);
+        taskDate.setHours(0, 0, 0, 0); // Assurer la comparaison jour contre jour
+
+        return taskDate < today;
+    });
+
+    if (overdueTasks.length > 0) {
+        showOverdueTasksModal(overdueTasks);
+    }
+    
+    // Marquer comme vérifié pour cette session
+    hasCheckedOverdueTasks = true;
+}
+
 
 // --- GESTION DE L'AFFICHAGE (THÈME, CONNEXION, NAVIGATION) ---
 export function applyTheme(theme) { document.documentElement.classList.toggle('dark', theme === 'dark'); }
@@ -80,6 +160,8 @@ export function updateAuthUI(user) {
         document.querySelector('button[data-mode="perso"]')?.classList.toggle('hidden', hiddenModes.includes('perso')); 
     } else { 
         if (DOMElements.pageContent) DOMElements.pageContent.innerHTML = ''; 
+        // Réinitialiser le drapeau de vérification des tâches en retard lors de la déconnexion
+        hasCheckedOverdueTasks = false;
     } 
 }
 
@@ -612,7 +694,7 @@ export async function showItemModal(entry, type) {
         formContent = `<div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3"><div class="md:col-span-2"><label class="text-sm font-medium">Titre</label><input id="modal-titre" type="text" value="${data.titre || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Poids (%)</label><input id="modal-poids" type="number" min="0" max="100" value="${data.poids || 0}" class="${inputClasses}"></div><div class="md:col-span-2"><label class="text-sm font-medium">Description</label><textarea id="modal-description" class="${textareaClasses}">${data.description || ''}</textarea></div><div class="md:col-span-2 space-y-2"><div><label class="text-sm font-medium">Échelle Mini</label><input id="modal-echelle-min" type="text" value="${data.echelle?.min || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Échelle Cible</label><input id="modal-echelle-cible" type="text" value="${data.echelle?.cible || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Échelle Max</label><input id="modal-echelle-max" type="text" value="${data.echelle?.max || ''}" class="${inputClasses}"></div></div><div class="md:col-span-2"><label class="text-sm font-medium">Avancement (Description)</label><textarea id="modal-avancement" class="${textareaClasses}">${data.avancement || ''}</textarea></div><div class="md:col-span-2"><label class="text-sm font-medium">Statut</label><div class="flex gap-4 mt-2"><label class="flex items-center gap-2"><input type="radio" name="statut" value="min" ${data.statut === 'min' ? 'checked' : ''}> Mini (Rouge)</label><label class="flex items-center gap-2"><input type="radio" name="statut" value="cible" ${data.statut === 'cible' || !data.statut ? 'checked' : ''}> Cible (Jaune)</label><label class="flex items-center gap-2"><input type="radio" name="statut" value="max" ${data.statut === 'max' ? 'checked' : ''}> Max (Vert)</label></div></div></div>`; 
     } else if (isContentItem) { 
         
-        // --- NOUVELLE SECTION POUR AJOUTER UN TODO RAPIDE (UNIQUEMENT DANS NOTES) ---
+        // --- SECTION POUR AJOUTER UN TODO RAPIDE (UNIQUEMENT DANS NOTES) ---
         let quickTodoSection = '';
 
         if (isNote) {
