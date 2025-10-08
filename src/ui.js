@@ -3,7 +3,7 @@ import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/fire
 import { db, storage } from './firebase.js';
 import state from './state.js';
 import { NAV_CONFIG, COLLECTIONS, firebaseConfig, COURSE_CATEGORIES, SHAREABLE_TYPES } from './config.js';
-import { addDataItem, updateDataItem, getNicknameByUserId, deleteDataItem, updateCourseItems, updateNickname, saveUserPreferences, handleSharing, unshareDocument, toggleCompletionStatus, searchNicknames } from './firestore.js';
+import { addDataItem, updateDataItem, getNicknameByUserId, deleteDataItem, updateCourseItems, updateNickname, saveUserPreferences, handleSharing, unshareDocument, searchNicknames } from './firestore.js'; // toggleCompletionStatus a été retiré
 import { showToast, debounce } from './utils.js';
 
 const DOMElements = { 
@@ -23,7 +23,9 @@ const DOMElements = {
 
 // --- GESTION DES MODALES ---
 export function showModal(content, maxWidthClass = 'max-w-xl') { 
-    if (!DOMElements.modalContainer || !DOMElements.modalOverlay) return; // Sécurité
+    // Sécurité: vérifier si les éléments existent
+    if (!DOMElements.modalContainer || !DOMElements.modalOverlay) return; 
+
     DOMElements.modalContainer.innerHTML = content; 
     DOMElements.modalContainer.className = `bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full ${maxWidthClass} max-h-[90vh] flex flex-col animate-slide-in-up`; 
     DOMElements.modalOverlay.classList.remove('hidden'); 
@@ -32,7 +34,9 @@ export function showModal(content, maxWidthClass = 'max-w-xl') {
 }
 
 export function hideModal() { 
-    if (!DOMElements.modalOverlay || !DOMElements.modalContainer) return; // Sécurité
+    // Sécurité: vérifier si les éléments existent
+    if (!DOMElements.modalOverlay || !DOMElements.modalContainer) return; 
+
     DOMElements.modalOverlay.classList.add('hidden'); 
     DOMElements.modalContainer.innerHTML = ''; 
 }
@@ -122,7 +126,7 @@ export function showPage(pageId) {
     pageTemplate.querySelector('.page-description').textContent = config.description; 
     
     const addButton = pageTemplate.querySelector('.add-new-item-btn'); 
-    if (config.type === COLLECTIONS.COLLABORATIVE_DOCS || config.id.includes('Terminees')) { 
+    if (config.id.includes('Terminees') || config.type === COLLECTIONS.COLLABORATIVE_DOCS) { // Ne pas ajouter de bouton "ajouter" sur les vues terminées ou partagées
         if (addButton) addButton.style.display = 'none'; 
     } else { 
         if (addButton) addButton.dataset.type = config.type; 
@@ -142,7 +146,7 @@ export function showPage(pageId) {
 
 async function createCardElement(entry, pageConfig) { 
     const cardTemplate = document.getElementById('card-template')?.content.cloneNode(true); 
-    if (!cardTemplate) return document.createElement('div'); // Retourne un div vide si le template n'existe pas
+    if (!cardTemplate) return null; // Retourne null si le template n'existe pas
 
     const card = cardTemplate.firstElementChild; 
     card.dataset.id = entry.id; 
@@ -157,7 +161,7 @@ async function createCardElement(entry, pageConfig) {
         card.style.cursor = 'pointer'; 
         card.addEventListener('click', (e) => { 
             e.stopPropagation(); 
-            window.open(entry.fileUrl, '_blank'); 
+            if (entry.fileUrl) window.open(entry.fileUrl, '_blank');
         }); 
     } 
 
@@ -190,6 +194,7 @@ async function createCardElement(entry, pageConfig) {
         if (entry.contenu) {
             const tempDiv = document.createElement('div'); 
             tempDiv.innerHTML = entry.contenu; 
+            // Sécurité: Assurer que le contenu existe avant de prendre le substring
             contentSummary = `${(tempDiv.textContent || "").substring(0, 80)}...`;
         }
         
@@ -198,23 +203,6 @@ async function createCardElement(entry, pageConfig) {
 
         summaryEl.innerHTML = `<div>${contentSummary}</div>${linksIndicator}`; 
     } 
-
-    // --- Bouton Terminé/À Faire pour TO DO/Actions ---
-    if (effectiveType === COLLECTIONS.ACTIONS || effectiveType === COLLECTIONS.TODO) {
-        const isCompleted = entry.isCompleted || false;
-        const btnText = isCompleted ? 'À Faire' : 'Terminé';
-        const btnClass = isCompleted ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-600 hover:bg-green-700';
-
-        card.querySelector('.card-actions').innerHTML = `
-            <button data-action="toggle-complete" 
-                    data-id="${entry.id}" 
-                    data-type="${effectiveType}"
-                    data-is-shared="${entry.isShared}"
-                    class="text-white font-bold py-1 px-3 rounded-lg text-sm ${btnClass}">
-                ${btnText}
-            </button>
-        `;
-    }
 
     if (entry.isShared) { 
         card.querySelector('.owner-display').textContent = `Par ${await getNicknameByUserId(entry.ownerId)}`; 
@@ -229,20 +217,23 @@ export async function renderPageContent() {
     const config = NAV_CONFIG[state.currentMode].find(p => p.id === state.currentPageId); 
     if (!config) return; 
     
-    let dataToShow = []; 
     const effectiveType = config.type;
 
-    if (effectiveType === COLLECTIONS.COLLABORATIVE_DOCS) { 
-        // Filtrage des documents partagés entre Pro et Perso (basé sur le type original)
-        dataToShow = state.sharedDataCache.filter(doc => {
-            const isProType = [COLLECTIONS.OBJECTIFS, COLLECTIONS.ACTIONS, COLLECTIONS.NOTES_REUNION, COLLECTIONS.WALLET].includes(doc.originalType); 
-            return (state.currentMode === 'pro' && isProType) || (state.currentMode === 'perso' && !isProType);
-        });
-    } else { 
-        const privateData = state.privateDataCache[effectiveType] || []; 
-        const sharedData = state.sharedDataCache.filter(doc => doc.originalType === effectiveType); 
-        dataToShow = [...privateData, ...sharedData]; 
-    } 
+    // --- LOGIQUE D'AGRÉGATION RENFORCÉE (Élimine les doublons potentiels) ---
+    const privateData = state.privateDataCache[effectiveType] || []; 
+    const sharedData = state.sharedDataCache.filter(doc => doc.originalType === effectiveType);
+    
+    // Créer une map pour garantir l'unicité par ID (les documents partagés priment sur les documents privés)
+    const allDataMap = new Map();
+    [...privateData, ...sharedData].forEach(doc => {
+        // Si le document est dans le cache partagé, c'est la version définitive, donc on ne l'écrase pas avec une version privée incomplète si elle a le même ID.
+        // Si la carte a un originalType, elle est passée de privée à partagée, l'ancienne ID privée ne doit plus exister.
+        // Cependant, nous nous assurons que nous prenons toujours la dernière version par ID.
+        allDataMap.set(doc.id, doc);
+    });
+
+    let dataToShow = Array.from(allDataMap.values());
+    // --- FIN LOGIQUE D'AGRÉGATION RENFORCÉE ---
 
     // Filtrage pour les vues "Terminées"
     if (config.id.includes('Terminees')) {
@@ -253,10 +244,7 @@ export async function renderPageContent() {
     }
     
     // --- LOG DE DIAGNOSTIC ---
-    if (effectiveType === COLLECTIONS.ACTIONS && state.currentPageId === 'actions') {
-        const completedCount = dataToShow.filter(entry => entry.isCompleted).length;
-        console.log(`[UI Render] Page '${state.currentPageId}' (ACTIONS). Total dans le cache: ${state.privateDataCache[effectiveType]?.length || 0}. Affiché après filtrage (NON COMPLÉTÉS): ${dataToShow.length}. Tâches complétées totales (cachées): ${completedCount}`);
-    }
+    console.log(`[UI Render] Page '${state.currentPageId}' (${effectiveType}). Total unique après agrégation: ${dataToShow.length}.`);
     // --- FIN LOG DE DIAGNOSTIC ---
 
     const searchTerm = (DOMElements.pageContent.querySelector('.searchBar')?.value || '').toLowerCase(); 
@@ -269,29 +257,21 @@ export async function renderPageContent() {
         return; 
     } 
     
-    const cardElements = await Promise.all(dataToShow.map(entry => createCardElement(entry, config))); 
+    // CORRECTION CRITIQUE: Utilisation d'un try/catch par carte pour isoler la carte qui fait planter le rendu
+    const cardElements = (await Promise.all(dataToShow.map(entry => {
+        try {
+            return createCardElement(entry, config);
+        } catch (e) {
+            console.error("Erreur de rendu de la carte (ignorée):", entry.id, e);
+            showToast(`Erreur d'affichage d'un élément: ${entry.titre || 'Sans titre'}`, 'error');
+            return null; // Retourne null si le rendu échoue
+        }
+    }))).filter(Boolean); // Filtrer les éléments nulls
+    
     cardElements.forEach(cardEl => container.appendChild(cardEl)); 
     
-    // Ajout des écouteurs pour les boutons Terminé/À Faire
-    DOMElements.pageContent.querySelectorAll('button[data-action="toggle-complete"]').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation(); // Empêche l'ouverture de la modale d'édition
-            const id = btn.dataset.id;
-            const type = btn.dataset.type;
-            const isShared = btn.dataset.isShared === 'true';
-            const collectionName = isShared ? COLLECTIONS.COLLABORATIVE_DOCS : type;
-            // Si le bouton affiche 'Terminé', le nouvel état est true
-            const newState = btn.textContent.trim() === 'Terminé'; 
-
-            await toggleCompletionStatus(collectionName, id, newState);
-            
-            // Re-render la page pour refléter le changement
-            renderPageContent(); 
-        });
-    });
+    // Les écouteurs pour les boutons Terminé/À Faire ont été retirés
 }
-
-// --- FONCTIONS SPÉCIFIQUES AUX MODALES ---
 
 // Fonction utilitaire pour exporter le contenu d'un document en HTML (pour Google Doc)
 function exportToGoogleDoc(title, htmlContent) {
@@ -330,7 +310,7 @@ function showLinkModal(entry, originalType) {
     `;
     showModal(content, 'max-w-lg');
     
-    document.getElementById('save-link-btn').addEventListener('click', async () => {
+    document.getElementById('save-link-btn')?.addEventListener('click', async () => {
         const title = document.getElementById('link-title-input').value.trim();
         const url = document.getElementById('link-url-input').value.trim();
 
@@ -364,7 +344,8 @@ export async function showSharingModal(entry, originalType) {
 
     if (isShared) {
         const membersNicknames = [];
-        for (const memberId of entry.members) {
+        // Utiliser une copie locale pour éviter les modifications asynchrones pendant l'itération
+        for (const memberId of entry.members || []) { 
             membersNicknames.push(await getNicknameByUserId(memberId));
         }
         membersListHTML = `<p class="text-sm mt-2 font-medium">Partagé avec : <span class="text-blue-500">${membersNicknames.join(', ')}</span></p>`;
@@ -401,14 +382,14 @@ export async function showSharingModal(entry, originalType) {
 
     // Autocomplétion
     const handleSearch = debounce(async (term) => {
-        autocompleteResults.classList.add('hidden');
+        autocompleteResults?.classList.add('hidden');
         if (term.length < 2) return;
         
         const results = await searchNicknames(term);
         displayAutocompleteResults(results, nicknameInput, autocompleteResults);
     }, 300);
 
-    nicknameInput.addEventListener('input', (e) => handleSearch(e.target.value.trim()));
+    nicknameInput?.addEventListener('input', (e) => handleSearch(e.target.value.trim()));
 
     // Gestion de l'affichage des résultats d'autocomplétion
     function displayAutocompleteResults(results, inputEl, resultsEl) {
@@ -431,7 +412,7 @@ export async function showSharingModal(entry, originalType) {
     }
 
     // Gestion du Partage (Inviter)
-    document.getElementById('share-btn').addEventListener('click', async () => {
+    document.getElementById('share-btn')?.addEventListener('click', async () => {
         const nickname = nicknameInput.value.trim().toLowerCase();
         if (!nickname) return showToast("Veuillez entrer un pseudo.", "error");
 
@@ -446,10 +427,10 @@ export async function showSharingModal(entry, originalType) {
             const updatedEntry = allData.find(doc => doc.id === (newSharedDocId || entry.id));
             
             if (updatedEntry) {
-                 // Rouvre la modale d'édition avec le document mis à jour (qui a maintenant isShared=true et les membres)
+                 // Rouvre la modale d'édition avec le document mis à jour 
                 showItemModal(updatedEntry, originalType);
             } else {
-                // Fallback si l'entrée n'est pas encore dans le cache ou n'existe plus
+                // Fallback (si l'entrée a été déplacée/modifiée mais pas encore dans le cache)
                 showItemModal(entry, originalType);
             }
         }, 500); 
@@ -608,7 +589,7 @@ export async function showItemModal(entry, type) {
     });
 
     // 4. Bouton Enregistrer / Mettre à jour
-    document.getElementById('save-btn').addEventListener('click', async () => { 
+    document.getElementById('save-btn')?.addEventListener('click', async () => { 
         const newTitre = document.getElementById('modal-titre').value; 
         if (!newTitre.trim()) return showToast("Le titre est obligatoire.", "error"); 
         
