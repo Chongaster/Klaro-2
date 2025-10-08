@@ -20,7 +20,7 @@ export const NAV_CONFIG = {
   ],
   perso: [
       { id: 'todo_perso', title: 'TODO', icon: '📌', type: COLLECTIONS.TODO, description: 'Vos tâches personnelles.' },
-     // { id: 'todo_perso_terminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.TODO, description: 'Consultez vos tâches personnelles achevées.' },
+      { id: 'todo_perso_terminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.TODO, description: 'Consultez vos tâches personnelles achevées.' },
       { id: 'voyages', title: 'Voyages', icon: '✈️', type: COLLECTIONS.VOYAGES, description: 'Planifiez vos prochaines escapades.' },
       { id: 'notes_perso', title: 'Notes', icon: '🗒️', type: COLLECTIONS.NOTES_PERSO, description: 'Vos pensées et mémos personnels.' },
       { id: 'courses', title: 'Courses', icon: '🛒', type: COLLECTIONS.COURSES, description: 'N\'oubliez plus rien au supermarché.' },
