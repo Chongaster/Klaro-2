@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, addDoc, where, runTransaction, writeBatch, arrayUnion, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, addDoc, where, runTransaction, writeBatch, arrayUnion, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { ref, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 import { db, storage } from './firebase.js';
 import { firebaseConfig, COLLECTIONS, NAV_CONFIG, SHAREABLE_TYPES } from './config.js';
@@ -50,47 +50,66 @@ export async function saveUserPreferences(prefs) { if (!state.userId) return; co
 export async function loadUserPreferences() { if (!state.userId) return state.userPreferences; const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings'); const docSnap = await getDoc(prefRef); return docSnap.exists() ? { ...state.userPreferences, ...docSnap.data() } : state.userPreferences; }
 export async function getNicknameByUserId(uid) { if (nicknameCache[uid]) return nicknameCache[uid]; const prefRef = doc(db, `artifacts/${appId}/users/${uid}/${COLLECTIONS.USER_PREFERENCES}`, 'settings'); const docSnap = await getDoc(prefRef); if (docSnap.exists() && docSnap.data().nickname) { nicknameCache[uid] = docSnap.data().nickname; return docSnap.data().nickname; } return uid.substring(0, 8); }
 
-// MISE À JOUR : Ajout d'une logique pour le champ 'dueDate' (date d'échéance)
-export async function addDataItem(collectionName, data) { 
+// MISE À JOUR : Ajout de parentId et parentCollection pour lier les tâches aux notes
+export async function addDataItem(collectionName, data, parentId = null, parentCollection = null) { 
     if (!state.userId) return; 
     const path = `artifacts/${appId}/users/${state.userId}/${collectionName}`; 
     
-    // Logique pour le champ dueDate (si c'est un TODO ou une ACTION)
     const isTodoAction = collectionName === COLLECTIONS.TODO || collectionName === COLLECTIONS.ACTIONS;
     const finalData = { 
         ...data, 
         ownerId: state.userId, 
         createdAt: new Date(),
-        // Ajouter un dueDate par défaut (ex: 7 jours) si le document est un TODO/ACTION et n'a pas de dueDate explicite
         ...(isTodoAction && !data.dueDate && { dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10) }),
-        ...(isTodoAction && data.dueDate && { dueDate: data.dueDate })
+        ...(isTodoAction && data.dueDate && { dueDate: data.dueDate }),
+        // NOUVEAU : Ajout des références parentes
+        ...(parentId && { parentId }),
+        ...(parentCollection && { parentCollection }),
     };
     
     await addDoc(collection(db, path), finalData); 
     showToast("Élément ajouté !", 'success'); 
 }
 
-// CORRECTION CRITIQUE: Suppression du try/catch interne pour laisser ui.js gérer la notification de succès/échec
 export async function updateDataItem(collectionName, id, data) { 
     if (!state.userId) return; 
-    
-    const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS 
-        ? `artifacts/${appId}/${collectionName}` 
-        : `artifacts/${appId}/users/${state.userId}/${collectionName}`; 
-    
+    const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS ? `artifacts/${appId}/${collectionName}` : `artifacts/${appId}/users/${state.userId}/${collectionName}`; 
     await updateDoc(doc(db, path, id), data); 
-    
-    // Le message de succès est maintenant affiché UNIQUEMENT ici, après l'opération réussie.
-    // Si une erreur se produit, l'exécution s'arrête ici et l'erreur est attrapée dans ui.js.
-    showToast("Mise à jour enregistrée.", 'success');
+    showToast("Mise à jour enregistrée.", 'success'); 
 }
 
 export async function deleteDataItem(collectionName, id, filePath = null) { if (!state.userId) return; if (filePath) { try { await deleteObject(ref(storage, filePath)); } catch (error) { if (error.code !== 'storage/object-not-found') { showToast("Erreur de suppression du fichier joint.", "error"); return; } } } const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS ? `artifacts/${appId}/${collectionName}` : `artifacts/${appId}/users/${state.userId}/${collectionName}`; await deleteDoc(doc(db, path, id)); showToast("Élément supprimé.", 'success'); }
 export async function updateCourseItems(docId, collectionName, action) { if (!state.userId) return; const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS ? `artifacts/${appId}/${collectionName}/${docId}` : `artifacts/${appId}/users/${state.userId}/${collectionName}/${docId}`; const docRef = doc(db, path); try { const docSnap = await getDoc(docRef); if (!docSnap.exists()) throw new Error("Document non trouvé !"); let currentItems = docSnap.data().items || []; switch (action.type) { case 'add': currentItems.push({ ...action.payload }); break; case 'toggle': if (currentItems[action.payload.index]) currentItems[action.payload.index].completed = action.payload.completed; break; case 'delete': currentItems.splice(action.payload.index, 1); break; } await updateDoc(docRef, { items: currentItems }); } catch (error) { showToast("Erreur de mise à jour de la liste.", "error"); } }
-// Fonction toggleCompletionStatus retirée car elle posait problème
-// export async function toggleCompletionStatus(collectionName, id, isCompleted) { if (!state.userId) return; ... } 
 export async function updateNickname(newNickname) { if (!state.userId || !newNickname || newNickname === state.userPreferences.nickname) { return { success: false, message: "Aucun changement nécessaire." }; } try { await runTransaction(db, async (transaction) => { const newNicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, newNickname); const docSnap = await transaction.get(newNicknameRef); if (docSnap.exists() && docSnap.data().userId !== state.userId) throw new Error("Ce pseudonyme est déjà utilisé."); if (state.userPreferences.nickname) { const oldNicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, state.userPreferences.nickname); transaction.delete(oldNicknameRef); } transaction.set(newNicknameRef, { userId: state.userId }); const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings'); transaction.update(prefRef, { nickname: newNickname }); }); state.userPreferences.nickname = newNickname; return { success: true, message: "Pseudonyme mis à jour !" }; } catch (error) { return { success: false, message: error.message || "Échec de la sauvegarde." }; } }
 async function findUserByNickname(nickname) { const nicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, nickname); const nicknameSnap = await getDoc(nicknameRef); if (!nicknameSnap.exists()) throw new Error("Pseudonyme non trouvé."); return nicknameSnap.data().userId; }
 export async function searchNicknames(searchTerm) { if (!state.userId) return []; try { const q = query(collection(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`), orderBy('userId'), where('userId', '!=', state.userId), limit(10)); const snapshot = await getDocs(q); const matchingNicknames = snapshot.docs.map(doc => doc.id).filter(nickname => nickname.startsWith(searchTerm.toLowerCase())); return matchingNicknames; } catch (error) { console.error("Erreur de recherche de pseudonymes:", error); return []; } }
 export async function handleSharing(entry, originalType, targetNickname) { if (!SHAREABLE_TYPES.includes(originalType)) return showToast("Cet élément n'est pas partageable.", "error"); try { const targetUserId = await findUserByNickname(targetNickname); if (entry.isShared) { const sharedDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`, entry.id); await updateDoc(sharedDocRef, { members: arrayUnion(targetUserId) }); showToast("Utilisateur ajouté au partage !", "success"); return null; } else { const batch = writeBatch(db); const originalDocRef = doc(db, `artifacts/${appId}/users/${state.userId}/${originalType}`, entry.id); const newSharedDocRef = doc(collection(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`)); const newDocData = { ...entry, ownerId: state.userId, members: [state.userId, targetUserId], originalType: originalType }; delete newDocData.id; batch.set(newSharedDocRef, newDocData); batch.delete(originalDocRef); await batch.commit(); showToast("Document partagé avec succès !", "success"); return newSharedDocRef.id; } } catch (error) { showToast(error.message, "error"); return null; } }
 export async function unshareDocument(entry) { if (!entry.isShared || entry.ownerId !== state.userId) return showToast("Action non autorisée.", "error"); try { const batch = writeBatch(db); const sharedDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`, entry.id); const newPrivateDocRef = doc(collection(db, `artifacts/${appId}/users/${state.userId}/${entry.originalType}`)); const privateData = { ...entry }; delete privateData.id; delete privateData.ownerId; delete privateData.members; delete privateData.originalType; delete privateData.isShared; batch.set(newPrivateDocRef, privateData); batch.delete(sharedDocRef); await batch.commit(); showToast("Le partage a été arrêté.", "success"); hideModal(); } catch (error) { showToast("Erreur lors de l'arrêt du partage.", "error"); } }
+
+// NOUVEAU : Fonction pour récupérer les tâches liées à un document (Note)
+export async function getLinkedTasks(documentId, collectionType) {
+    if (!state.userId || !documentId) return [];
+
+    const isShared = collectionType === COLLECTIONS.COLLABORATIVE_DOCS;
+    const targetCollection = (collectionType === COLLECTIONS.NOTES_PERSO) ? COLLECTIONS.TODO : COLLECTIONS.ACTIONS;
+    
+    // Si c'est un document partagé, on ne peut pas lier la tâche au document parent dans la collection COLLABORATIVE_DOCS
+    // car les tâches sont toujours privées. Nous allons donc chercher dans les tâches privées (TODO ou ACTIONS)
+    // où le parentId correspond à l'ID de la note.
+    
+    // Déterminer la collection où chercher les tâches liées (toujours privé pour les tâches)
+    const tasksCollectionPath = `artifacts/${appId}/users/${state.userId}/${targetCollection}`;
+    
+    try {
+        const q = query(
+            collection(db, tasksCollectionPath),
+            where('parentId', '==', documentId)
+        );
+        
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), collectionName: targetCollection }));
+    } catch (error) {
+        console.error("Erreur lors de la récupération des tâches liées:", error);
+        return [];
+    }
+}

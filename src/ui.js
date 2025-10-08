@@ -3,7 +3,7 @@ import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/fire
 import { db, storage } from './firebase.js';
 import state from './state.js';
 import { NAV_CONFIG, COLLECTIONS, firebaseConfig, COURSE_CATEGORIES, SHAREABLE_TYPES } from './config.js';
-import { addDataItem, updateDataItem, getNicknameByUserId, deleteDataItem, updateCourseItems, updateNickname, saveUserPreferences, handleSharing, unshareDocument, searchNicknames } from './firestore.js';
+import { addDataItem, updateDataItem, getNicknameByUserId, deleteDataItem, updateCourseItems, updateNickname, saveUserPreferences, handleSharing, unshareDocument, searchNicknames, getLinkedTasks } from './firestore.js';
 import { showToast, debounce } from './utils.js';
 
 const DOMElements = { 
@@ -484,7 +484,7 @@ export async function renderPageContent() {
 
 // Fonction utilitaire pour exporter le contenu d'un document en HTML (pour Google Doc)
 function exportToGoogleDoc(title, htmlContent) {
-    const html = `<!DOCTYPE html><html><head><title>${title}</title></head><body><h1>${title}</h1>${htmlContent}</body></html>`;
+    const html = `<!DOCTYPE html><html><head><title>${title}</title></head><body><h1>${title}</h1></head><body><h1>${title}</h1>${htmlContent}</body></html>`;
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     
@@ -662,8 +662,8 @@ export async function showSharingModal(entry, originalType) {
 export async function showItemModal(entry, type) { 
     const isNew = !entry; 
     // Initialise liens à un tableau vide si manquant
-    // Inclut 'dueDate'
-    const data = isNew ? { titre: '', liens: [], dueDate: '' } : { ...entry, liens: entry.liens || [], dueDate: entry.dueDate || '' }; 
+    // Inclut 'dueDate', 'parentId', 'parentCollection'
+    const data = isNew ? { titre: '', liens: [], dueDate: '', parentId: null, parentCollection: null } : { ...entry, liens: entry.liens || [], dueDate: entry.dueDate || '', parentId: entry.parentId || null, parentCollection: entry.parentCollection || null }; 
     
     // Déterminer le type effectif pour les contrôles du formulaire
     data.isShared = type === COLLECTIONS.COLLABORATIVE_DOCS || data.isShared; // S'assurer que isShared est conservé
@@ -696,6 +696,12 @@ export async function showItemModal(entry, type) {
         
         // --- SECTION POUR AJOUTER UN TODO RAPIDE (UNIQUEMENT DANS NOTES) ---
         let quickTodoSection = '';
+        let linkedTasksSection = '';
+
+        if (isNote && !isNew) {
+            // Afficher les tâches liées existantes
+            linkedTasksSection = `<div id="linked-tasks-list" class="mt-4 p-3 border dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800/50"></div>`;
+        }
 
         if (isNote) {
             // Détermine la cible (TODO_PERSO ou ACTIONS) et le titre de la section
@@ -706,7 +712,7 @@ export async function showItemModal(entry, type) {
                 <div class="mt-4 p-4 border dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50">
                     <h4 class="font-bold mb-2 text-md">Créer une ${targetTitle}</h4>
                     <div class="flex flex-col md:flex-row gap-2">
-                        <input type="text" id="quick-todo-input" data-target-collection="${targetCollection}" placeholder="Nouvelle tâche..." class="${inputClasses} flex-grow">
+                        <input type="text" id="quick-todo-input" data-target-collection="${targetCollection}" data-parent-id="${data.id}" data-parent-type="${originalType}" placeholder="Nouvelle tâche..." class="${inputClasses} flex-grow">
                         <input type="date" id="quick-todo-due-date" class="${inputClasses} w-auto md:w-1/4">
                         <button id="add-quick-todo-btn" class="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg flex-shrink-0">Ajouter</button>
                     </div>
@@ -739,19 +745,38 @@ export async function showItemModal(entry, type) {
                 <div class="space-y-2">${linksListHTML}</div>
             </div>
         ` : '';
+        
+        // NOUVEAU : Lien vers la note parente si c'est une tâche
+        let parentLinkHTML = '';
+        if (isTodoAction && data.parentId && data.parentCollection) {
+            const parentCollectionConfig = Object.values(NAV_CONFIG).flat().find(c => c.type === data.parentCollection);
+            const parentTitle = parentCollectionConfig ? parentCollectionConfig.title : 'Document';
+            
+            parentLinkHTML = `<p class="text-sm font-medium mb-2 p-2 bg-blue-50 dark:bg-blue-900/50 rounded-lg text-blue-700 dark:text-blue-300">
+                Tâche liée à la <button id="open-parent-note-btn" data-parent-id="${data.parentId}" data-parent-type="${data.parentCollection}" class="underline font-bold hover:text-blue-500">${parentTitle}</button>.
+            </p>`;
+        }
+
 
         // 3. Contenu principal
         formContent = `
             <div class="mb-4"><label class="text-sm font-medium">Titre</label><input id="modal-titre" type="text" value="${data.titre || ''}" class="${inputClasses}"></div>
             ${isTodoAction ? 
-                `<div class="mb-4"><label class="text-sm font-medium">Date d'échéance</label><input id="modal-due-date" type="date" value="${data.dueDate || ''}" class="${inputClasses}"></div>` 
+                `<div class="mb-4">
+                    <label class="text-sm font-medium">Date d'échéance</label>
+                    <input id="modal-due-date" type="date" value="${data.dueDate || ''}" class="${inputClasses}">
+                </div>` 
                 : ''}
+            
+            ${parentLinkHTML}
+
             <div class="flex flex-col">
                 <label class="text-sm font-medium mb-1">${isTodoAction ? 'Description (Action)' : 'Contenu'}</label>
                 ${formattingToolbar}
                 <div id="modal-contenu" contenteditable="true" class="w-full p-3 mt-1 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600 min-h-[150px]">${data.contenu || ''}</div>
             </div>
             ${quickTodoSection}
+            ${linkedTasksSection}
             ${linksSection}
         `;
     }
@@ -790,6 +815,28 @@ export async function showItemModal(entry, type) {
             ${actionButtons}
         </div>
     `, 'max-w-2xl'); 
+    
+    // NOUVEAU : Fonction pour afficher les tâches liées
+    if (isNote && !isNew) {
+        renderLinkedTasks(data.id, originalType);
+    }
+    
+    // NOUVEAU : Gestionnaire de clic pour le lien de la note parente
+    document.getElementById('open-parent-note-btn')?.addEventListener('click', () => {
+        hideModal(); // Fermer la modale actuelle
+        
+        // Le document parent doit être dans un des caches pour être ouvert
+        const allData = [...Object.values(state.privateDataCache).flat(), ...state.sharedDataCache];
+        const parentEntry = allData.find(item => item.id === data.parentId);
+        
+        if (parentEntry) {
+            // Utiliser le type stocké dans la tâche pour rouvrir la modale
+            showItemModal(parentEntry, data.parentCollection); 
+        } else {
+            showToast("Note parente introuvable. Elle a peut-être été supprimée ou n'est pas chargée.", 'error');
+        }
+    });
+
 
     // --- Gestionnaires d'Événements ---
 
@@ -845,12 +892,14 @@ export async function showItemModal(entry, type) {
         const saveCollection = data.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType;
 
         // Désactiver temporairement le bouton et afficher l'état de chargement
-        saveButton.disabled = true;
-        saveButton.textContent = 'Sauvegarde...';
+        if (saveButton) { 
+            saveButton.disabled = true;
+            saveButton.textContent = 'Sauvegarde...';
+        }
 
         try {
             if (isWallet && isNew) { 
-                // handleFileUpload gère la sauvegarde, la réactivation et la fermeture.
+                // handleFileUpload gère la sauvegarde et l'UI (y compris hideModal et les toasts)
                 handleFileUpload(newTitre, saveButton, initialButtonText); 
                 return; 
             } else if (isObjective) { 
@@ -880,33 +929,36 @@ export async function showItemModal(entry, type) {
                  dataToSave = { titre: newTitre };
             }
 
-            if (isNew) { 
+            if (isNew) {
+                // Création : succès = fermeture de la modale.
                 await addDataItem(originalType, dataToSave); 
-                hideModal(); // Fermer après une création
+                // Seule la fermeture de la modale est nécessaire ici, addDataItem gère le toast de succès.
+                hideModal(); 
             } else { 
-                // updateDataItem déclenche le message de succès dans firestore.js
+                // Mise à jour : succès = restauration du bouton.
                 await updateDataItem(saveCollection, entry.id, dataToSave); 
                 
                 // Mettre à jour les données locales pour que la modale affiche le nouveau titre si nécessaire
                 Object.assign(data, dataToSave);
 
                 // Mise à jour de l'UI pour confirmer la modification
-                document.querySelector('.modal h3').textContent = `Modifier : ${newTitre}`; 
-                
-                // Réactiver le bouton et restaurer son texte initial
-                saveButton.disabled = false;
-                saveButton.textContent = initialButtonText;
-                
-                // --- CORRECTION : Message de succès n'est pas nécessaire ici car updateDataItem le gère.
+                if (saveButton) { 
+                    document.querySelector('.modal h3').textContent = `Modifier : ${newTitre}`; 
+                    saveButton.disabled = false;
+                    saveButton.textContent = initialButtonText;
+                }
+                // updateDataItem dans firestore.js envoie le toast de succès
             }
         } catch (error) {
-             // Si une erreur se produit, nous affichons le message d'échec
-             showToast("Échec de la sauvegarde.", 'error');
+             // Si une erreur se produit (ici, uniquement les vraies erreurs Firestore ou logiques)
+             showToast("❌ Échec de la sauvegarde.", 'error');
              console.error("Erreur de sauvegarde:", error);
 
-             // Réactiver le bouton en cas d'erreur
-             saveButton.disabled = false;
-             saveButton.textContent = initialButtonText;
+             // Restauration du bouton en cas d'échec
+             if (saveButton) { 
+                 saveButton.disabled = false;
+                 saveButton.textContent = initialButtonText;
+             }
         }
     }); 
 
@@ -994,8 +1046,10 @@ export async function showItemModal(entry, type) {
     document.getElementById('add-quick-todo-btn')?.addEventListener('click', async () => {
         const todoInput = document.getElementById('quick-todo-input');
         const todoDateInput = document.getElementById('quick-todo-due-date');
-        // Récupérer la collection cible
+        
         const targetCollection = todoInput.dataset.targetCollection;
+        const parentId = todoInput.dataset.parentId;
+        const parentCollection = todoInput.dataset.parentType;
         
         const todoText = todoInput.value.trim();
         const todoDueDate = todoDateInput.value;
@@ -1006,15 +1060,21 @@ export async function showItemModal(entry, type) {
             titre: todoText,
             contenu: '',
             isCompleted: false,
-            dueDate: todoDueDate, // Sera géré par firestore.js si vide
+            dueDate: todoDueDate,
         };
         
-        // Assurer que le TODO est ajouté dans la collection correcte (TODO ou ACTIONS)
-        await addDataItem(targetCollection, todoData);
+        // NOUVEAU : Passage des ID de la note parente à addDataItem
+        const newDocId = await addDataItem(targetCollection, todoData, parentId, parentCollection);
         
-        // Réinitialiser le champ et notifier l'utilisateur
+        // Réinitialiser le champ
         todoInput.value = '';
         todoDateInput.value = '';
+        
+        // Si l'ajout a réussi, rafraîchir la liste des tâches liées dans la modale
+        if (newDocId) {
+            await renderLinkedTasks(parentId, parentCollection);
+        }
+        
         showToast(`Tâche ajoutée à la section ${targetCollection === COLLECTIONS.TODO ? 'TODO Perso' : 'Actions Pro'} !`, 'success');
     });
 
@@ -1033,17 +1093,18 @@ export async function showItemModal(entry, type) {
 
     // 11. Gestion du téléchargement de fichier (Wallet)
     function handleFileUpload(titre, saveBtn, initialButtonText) { 
-        const file = document.getElementById('file-input').files[0]; 
+        const file = document.getElementById('file-input')?.files?.[0]; 
+        
         if (!file) {
             showToast("Veuillez sélectionner un fichier.", "error");
-            saveBtn.disabled = false;
-            saveBtn.textContent = initialButtonText;
+            if (saveBtn) { 
+                saveBtn.disabled = false;
+                saveBtn.textContent = initialButtonText;
+            }
             return;
         }
 
         const progressBar = document.getElementById('upload-progress-bar'); 
-        
-        // État de chargement déjà réglé avant l'appel
         const progressContainer = document.getElementById('upload-progress-container');
         if (progressContainer) progressContainer.classList.remove('hidden'); 
 
@@ -1055,15 +1116,24 @@ export async function showItemModal(entry, type) {
                 if (progressBar) progressBar.style.width = `${(snapshot.bytesTransferred / snapshot.totalBytes) * 100}%`; 
             }, 
             (error) => { 
-                showToast("Échec de l'envoi.", "error"); 
+                showToast("Échec de l'envoi du fichier.", "error"); 
                 // Réactiver le bouton en cas d'erreur
-                saveBtn.disabled = false; 
-                saveBtn.textContent = initialButtonText;
+                if (saveBtn) { 
+                    saveBtn.disabled = false; 
+                    saveBtn.textContent = initialButtonText;
+                }
             }, 
             async () => { 
-                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref); 
-                addDataItem(COLLECTIONS.WALLET, { titre, fileName: file.name, fileUrl: downloadURL, filePath }); 
-                hideModal(); 
+                try {
+                    const downloadURL = await getDownloadURL(uploadTask.snapshot.ref); 
+                    await addDataItem(COLLECTIONS.WALLET, { titre, fileName: file.name, fileUrl: downloadURL, filePath }); 
+                    // Fermeture et succès gérés ici pour le Wallet
+                    hideModal(); 
+                    showToast("Élément Wallet ajouté !", 'success');
+                } catch (error) {
+                    showToast("Échec de la sauvegarde Firestore du Wallet.", "error");
+                    console.error("Erreur Wallet:", error);
+                }
             }
         ); 
     }
@@ -1109,6 +1179,88 @@ function renderCourseItems(items = [], docId, collectionName) {
         }); 
     }); 
 }
+
+// NOUVEAU : Fonction de rendu pour les tâches liées
+async function renderLinkedTasks(parentId, parentCollection) {
+    const container = document.getElementById('linked-tasks-list');
+    if (!container) return;
+
+    container.innerHTML = `<p class="text-center text-gray-500 py-4">Chargement des tâches liées...</p>`;
+    
+    try {
+        const tasks = await getLinkedTasks(parentId, parentCollection);
+        
+        if (tasks.length === 0) {
+            container.innerHTML = `<p class="text-sm font-medium pt-2">Pas de tâches liées à cette note.</p>`;
+            return;
+        }
+
+        const taskListHTML = tasks.map(task => {
+            const isCompleted = task.isCompleted || false;
+            const collectionTitle = task.collectionName === COLLECTIONS.TODO ? 'TODO' : 'Action';
+            const dateDisplay = task.dueDate ? new Date(task.dueDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : 'N/A';
+            
+            return `
+                <div class="flex items-center justify-between p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <label class="flex items-center cursor-pointer flex-grow" data-id="${task.id}" data-type="${task.collectionName}" data-action="open-linked-task">
+                        <input type="checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} class="task-toggle h-4 w-4 rounded border-gray-300 text-blue-600 flex-shrink-0">
+                        <span class="ml-3 text-sm truncate ${isCompleted ? 'line-through text-gray-500' : 'font-medium'}">
+                            [${collectionTitle}] ${task.titre}
+                        </span>
+                    </label>
+                    <span class="text-xs text-gray-400">${dateDisplay}</span>
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = `
+            <h4 class="font-bold mb-2">Tâches liées à cette Note (${tasks.length})</h4>
+            <div class="space-y-1">${taskListHTML}</div>
+        `;
+        
+        // Ajouter les gestionnaires d'événements pour les tâches liées
+        container.querySelectorAll('.task-toggle').forEach(checkbox => {
+            checkbox.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const taskId = e.target.dataset.taskId;
+                const taskCollection = (parentCollection === COLLECTIONS.NOTES_PERSO) ? COLLECTIONS.TODO : COLLECTIONS.ACTIONS;
+                
+                await toggleCompletionStatus(taskCollection, taskId, e.target.checked);
+                
+                // Rafraîchir l'affichage après le changement d'état
+                renderLinkedTasks(parentId, parentCollection);
+            });
+        });
+        
+        // Ajouter les gestionnaires d'événements pour ouvrir la modale de la tâche
+        container.querySelectorAll('label[data-action="open-linked-task"]').forEach(label => {
+            label.addEventListener('click', async (e) => {
+                // Si l'utilisateur a cliqué sur le texte (pas la checkbox)
+                if (!e.target.matches('.task-toggle')) {
+                    const taskId = label.dataset.id;
+                    const taskCollection = label.dataset.type;
+                    
+                    const allData = [...state.privateDataCache[taskCollection] || [], ...state.sharedDataCache.filter(d => d.originalType === taskCollection)];
+                    const taskEntry = allData.find(item => item.id === taskId);
+
+                    if (taskEntry) {
+                        hideModal(); // Fermer la modale actuelle de la note
+                        // Ouvrir la modale de la tâche
+                        showItemModal(taskEntry, taskCollection);
+                    } else {
+                        showToast("Tâche introuvable.", 'error');
+                    }
+                }
+            });
+        });
+
+
+    } catch (e) {
+        console.error("Erreur de rendu des tâches liées:", e);
+        container.innerHTML = `<p class="text-red-500 py-4">Erreur lors du chargement des tâches liées.</p>`;
+    }
+}
+
 
 export function showPreferencesModal() { 
     const hiddenModes = state.userPreferences.hiddenModes || []; 
