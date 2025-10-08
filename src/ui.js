@@ -775,7 +775,9 @@ export async function showItemModal(entry, type) {
     } else {
         actionButtons += '<div></div>'; 
     }
-    actionButtons += `<button id="save-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg ml-2">💾 ${isNew ? 'Enregistrer' : 'Mettre à jour'}</button>`;
+    // Le bouton de sauvegarde/mise à jour
+    const saveButtonText = isNew ? '💾 Enregistrer' : '💾 Mettre à jour';
+    actionButtons += `<button id="save-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg ml-2">${saveButtonText}</button>`;
 
     // Afficher la modale
     showModal(`
@@ -830,62 +832,81 @@ export async function showItemModal(entry, type) {
 
     // 4. Bouton Enregistrer / Mettre à jour
     document.getElementById('save-btn')?.addEventListener('click', async () => { 
+        const saveButton = document.getElementById('save-btn');
+        const initialButtonText = isNew ? '💾 Enregistrer' : '💾 Mettre à jour';
+
         const newTitre = document.getElementById('modal-titre').value; 
-        if (!newTitre.trim()) return showToast("Le titre est obligatoire.", "error"); 
+        if (!newTitre.trim()) {
+            showToast("Le titre est obligatoire.", "error");
+            return;
+        }
         
         let dataToSave; 
         const saveCollection = data.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType;
 
-        if (isWallet && isNew) { 
-            handleFileUpload(newTitre); 
-            return; 
-        } else if (isObjective) { 
-            dataToSave = { 
-                titre: newTitre, 
-                poids: parseInt(document.getElementById('modal-poids').value) || 0, 
-                description: document.getElementById('modal-description').value, 
-                echelle: { 
-                    min: document.getElementById('modal-echelle-min').value, 
-                    cible: document.getElementById('modal-echelle-cible').value, 
-                    max: document.getElementById('modal-echelle-max').value, 
-                }, 
-                avancement: document.getElementById('modal-avancement').value, 
-                statut: document.querySelector('input[name="statut"]:checked')?.value || 'cible', 
-            }; 
-        } else if (isCourses) { 
-            dataToSave = { titre: newTitre, items: data.items || [] }; 
-        } else if (isContentItem) {
-             dataToSave = { 
-                titre: newTitre, 
-                contenu: document.getElementById('modal-contenu').innerHTML,
-                liens: data.liens || [],
-                // Ajout conditionnel de la date d'échéance
-                ...(isTodoAction && { dueDate: document.getElementById('modal-due-date').value || '' })
-            }; 
-        } else {
-             dataToSave = { titre: newTitre };
-        }
+        // Désactiver temporairement le bouton et afficher l'état de chargement
+        saveButton.disabled = true;
+        saveButton.textContent = 'Sauvegarde...';
 
-        if (isNew) { 
-            await addDataItem(originalType, dataToSave); 
-            hideModal(); // Fermer après une création
-        } else { 
-            // Désactiver temporairement le bouton et afficher l'état de chargement
-            document.getElementById('save-btn').disabled = true;
-            document.getElementById('save-btn').textContent = 'Sauvegarde...';
+        try {
+            if (isWallet && isNew) { 
+                // handleFileUpload gère la sauvegarde, la réactivation et la fermeture.
+                handleFileUpload(newTitre, saveButton, initialButtonText); 
+                return; 
+            } else if (isObjective) { 
+                dataToSave = { 
+                    titre: newTitre, 
+                    poids: parseInt(document.getElementById('modal-poids').value) || 0, 
+                    description: document.getElementById('modal-description').value, 
+                    echelle: { 
+                        min: document.getElementById('modal-echelle-min').value, 
+                        cible: document.getElementById('modal-echelle-cible').value, 
+                        max: document.getElementById('modal-echelle-max').value, 
+                    }, 
+                    avancement: document.getElementById('modal-avancement').value, 
+                    statut: document.querySelector('input[name="statut"]:checked')?.value || 'cible', 
+                }; 
+            } else if (isCourses) { 
+                dataToSave = { titre: newTitre, items: data.items || [] }; 
+            } else if (isContentItem) {
+                 dataToSave = { 
+                    titre: newTitre, 
+                    contenu: document.getElementById('modal-contenu').innerHTML,
+                    liens: data.liens || [],
+                    // Ajout conditionnel de la date d'échéance
+                    ...(isTodoAction && { dueDate: document.getElementById('modal-due-date').value || '' })
+                }; 
+            } else {
+                 dataToSave = { titre: newTitre };
+            }
 
-            await updateDataItem(saveCollection, entry.id, dataToSave); 
-            
-            // Mettre à jour les données locales pour que la modale affiche le nouveau titre si nécessaire
-            Object.assign(data, dataToSave);
+            if (isNew) { 
+                await addDataItem(originalType, dataToSave); 
+                hideModal(); // Fermer après une création
+            } else { 
+                // updateDataItem déclenche le message de succès dans firestore.js
+                await updateDataItem(saveCollection, entry.id, dataToSave); 
+                
+                // Mettre à jour les données locales pour que la modale affiche le nouveau titre si nécessaire
+                Object.assign(data, dataToSave);
 
-            // Mise à jour de l'UI pour confirmer la modification
-            document.querySelector('.modal h3').textContent = `Modifier : ${newTitre}`; 
-            showToast("Mise à jour enregistrée.", 'success');
+                // Mise à jour de l'UI pour confirmer la modification
+                document.querySelector('.modal h3').textContent = `Modifier : ${newTitre}`; 
+                
+                // Réactiver le bouton et restaurer son texte initial
+                saveButton.disabled = false;
+                saveButton.textContent = initialButtonText;
+                
+                // --- CORRECTION : Message de succès n'est pas nécessaire ici car updateDataItem le gère.
+            }
+        } catch (error) {
+             // Si une erreur se produit, nous affichons le message d'échec
+             showToast("Échec de la sauvegarde.", 'error');
+             console.error("Erreur de sauvegarde:", error);
 
-            // Réactiver le bouton (comme la modale reste ouverte)
-            document.getElementById('save-btn').disabled = false;
-            document.getElementById('save-btn').textContent = '💾 Mettre à jour';
+             // Réactiver le bouton en cas d'erreur
+             saveButton.disabled = false;
+             saveButton.textContent = initialButtonText;
         }
     }); 
 
@@ -1011,13 +1032,18 @@ export async function showItemModal(entry, type) {
     document.getElementById('modal-contenu')?.focus();
 
     // 11. Gestion du téléchargement de fichier (Wallet)
-    function handleFileUpload(titre) { 
+    function handleFileUpload(titre, saveBtn, initialButtonText) { 
         const file = document.getElementById('file-input').files[0]; 
-        if (!file) return showToast("Veuillez sélectionner un fichier.", "error"); 
-        const saveBtn = document.getElementById('save-btn'); 
+        if (!file) {
+            showToast("Veuillez sélectionner un fichier.", "error");
+            saveBtn.disabled = false;
+            saveBtn.textContent = initialButtonText;
+            return;
+        }
+
         const progressBar = document.getElementById('upload-progress-bar'); 
-        if (saveBtn) saveBtn.disabled = true; 
-        if (saveBtn) saveBtn.textContent = 'Envoi...'; 
+        
+        // État de chargement déjà réglé avant l'appel
         const progressContainer = document.getElementById('upload-progress-container');
         if (progressContainer) progressContainer.classList.remove('hidden'); 
 
@@ -1030,7 +1056,9 @@ export async function showItemModal(entry, type) {
             }, 
             (error) => { 
                 showToast("Échec de l'envoi.", "error"); 
-                if (saveBtn) saveBtn.disabled = false; 
+                // Réactiver le bouton en cas d'erreur
+                saveBtn.disabled = false; 
+                saveBtn.textContent = initialButtonText;
             }, 
             async () => { 
                 const downloadURL = await getDownloadURL(uploadTask.snapshot.ref); 
