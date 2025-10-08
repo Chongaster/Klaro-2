@@ -13,14 +13,16 @@ export const SHAREABLE_TYPES = [ COLLECTIONS.NOTES_PERSO, COLLECTIONS.COURSES, C
 export const NAV_CONFIG = {
   pro: [
       { id: 'objectifs', title: 'Objectifs', icon: '🎯', type: COLLECTIONS.OBJECTIFS, description: 'Suivez vos objectifs principaux.' },
-      { id: 'actions', title: 'TO DO', icon: '📝', type: COLLECTIONS.ACTIONS, description: 'Gérez vos tâches professionnelles.' },
-      { id: 'actionsTerminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.ACTIONS, description: 'Consultez vos actions achevées.' },
+      // Ajout de isList: true pour les vues TODO/ACTIONS
+      { id: 'actions', title: 'TO DO', icon: '📝', type: COLLECTIONS.ACTIONS, description: 'Gérez vos tâches professionnelles.', isList: true },
+      { id: 'actionsTerminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.ACTIONS, description: 'Consultez vos actions achevées.', isList: true },
       { id: 'notesReunion', title: 'Notes', icon: '📋', type: COLLECTIONS.NOTES_REUNION, description: 'Archivez vos notes de réunion.' },
       { id: 'sharedWithMePro', title: 'Partagés', icon: '🤝', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents professionnels partagés.' }
   ],
   perso: [
-      { id: 'todo_perso', title: 'TODO', icon: '📌', type: COLLECTIONS.TODO, description: 'Vos tâches personnelles.' },
-      { id: 'todo_perso_terminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.TODO, description: 'Consultez vos tâches personnelles achevées.' },
+      // Ajout de isList: true pour les vues TODO/ACTIONS
+      { id: 'todo_perso', title: 'TODO', icon: '📌', type: COLLECTIONS.TODO, description: 'Vos tâches personnelles.', isList: true },
+      { id: 'todo_perso_terminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.TODO, description: 'Consultez vos tâches personnelles achevées.', isList: true },
       { id: 'voyages', title: 'Voyages', icon: '✈️', type: COLLECTIONS.VOYAGES, description: 'Planifiez vos prochaines escapades.' },
       { id: 'notes_perso', title: 'Notes', icon: '🗒️', type: COLLECTIONS.NOTES_PERSO, description: 'Vos pensées et mémos personnels.' },
       { id: 'courses', title: 'Courses', icon: '🛒', type: COLLECTIONS.COURSES, description: 'N\'oubliez plus rien au supermarché.' },

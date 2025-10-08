@@ -3,7 +3,7 @@ import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/fire
 import { db, storage } from './firebase.js';
 import state from './state.js';
 import { NAV_CONFIG, COLLECTIONS, firebaseConfig, COURSE_CATEGORIES, SHAREABLE_TYPES } from './config.js';
-import { addDataItem, updateDataItem, getNicknameByUserId, deleteDataItem, updateCourseItems, updateNickname, saveUserPreferences, handleSharing, unshareDocument, searchNicknames } from './firestore.js'; // toggleCompletionStatus a été retiré
+import { addDataItem, updateDataItem, getNicknameByUserId, deleteDataItem, updateCourseItems, updateNickname, saveUserPreferences, handleSharing, unshareDocument, searchNicknames } from './firestore.js';
 import { showToast, debounce } from './utils.js';
 
 const DOMElements = { 
@@ -210,6 +210,99 @@ async function createCardElement(entry, pageConfig) {
     return card; 
 }
 
+/**
+ * Marque un document comme terminé ou non.
+ * @param {string} collectionName - Le nom de la collection (privée ou partagée).
+ * @param {string} id - L'ID du document.
+ * @param {boolean} isCompleted - Le nouvel état.
+ */
+async function toggleCompletionStatus(collectionName, id, isCompleted) {
+    if (!state.userId) return;
+
+    // Déterminer le chemin, en faisant attention aux documents partagés.
+    // Utiliser le type de la configuration de la page pour cibler la collection d'origine (TODO ou ACTIONS)
+    const pageConfig = NAV_CONFIG[state.currentMode].find(p => p.id === state.currentPageId);
+    const originalType = pageConfig?.type;
+    
+    // Si l'élément est dans la collection collaborative, on met à jour là-bas.
+    // Sinon, on utilise le type d'origine de la page (TODO ou ACTIONS).
+    const effectivePath = collectionName === COLLECTIONS.COLLABORATIVE_DOCS ? COLLECTIONS.COLLABORATIVE_DOCS : originalType;
+
+    await updateDataItem(effectivePath, id, { isCompleted: isCompleted });
+    showToast(`Tâche ${isCompleted ? 'terminée' : 'remise à faire'} !`, 'info');
+}
+
+/**
+ * Crée un élément de liste pour les vues TODO/ACTIONS.
+ */
+async function createListItemElement(entry, pageConfig) {
+    const effectiveType = entry.originalType || pageConfig.type;
+    // Vérification de sécurité, bien que le filtre doive déjà être fait
+    if (effectiveType !== COLLECTIONS.TODO && effectiveType !== COLLECTIONS.ACTIONS) return null; 
+
+    const li = document.createElement('li');
+    li.className = 'flex items-center justify-between p-4 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer';
+    li.dataset.id = entry.id;
+    li.dataset.type = effectiveType; 
+    
+    // Formatter la date d'échéance
+    const dateObj = entry.dueDate ? new Date(entry.dueDate) : null;
+    const dueDateDisplay = dateObj ? dateObj.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : 'N/A';
+    
+    // Déterminer la couleur de la date
+    let dateClass = 'text-sm font-medium flex-shrink-0';
+    if (dateObj && !entry.isCompleted) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const diffDays = Math.ceil((dateObj - today) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) dateClass += ' text-red-500 font-bold'; // En retard
+        else if (diffDays <= 3) dateClass += ' text-yellow-500'; // Proche
+    } else if (entry.isCompleted) {
+        dateClass += ' text-gray-500 line-through';
+    }
+
+    // Afficher le contenu (description) tronqué si existant
+    let contentSummary = '';
+    if (entry.contenu) {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = entry.contenu;
+        contentSummary = `<p class="text-xs text-gray-600 dark:text-gray-400 truncate">${(tempDiv.textContent || "").substring(0, 80)}</p>`;
+    }
+
+
+    li.innerHTML = `
+        <div class="flex items-center space-x-4 flex-grow min-w-0">
+            <input type="checkbox" data-action="toggle-completion" data-id="${entry.id}" ${entry.isCompleted ? 'checked' : ''} class="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0">
+            <div class="flex-grow min-w-0">
+                <p class="text-sm font-semibold truncate ${entry.isCompleted ? 'line-through text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-gray-100'}">${entry.titre || 'Sans titre'}</p>
+                ${contentSummary}
+            </div>
+        </div>
+        <div class="flex items-center space-x-3 ml-4">
+            <span class="${dateClass}">${dueDateDisplay}</span>
+            ${entry.isShared ? `<span title="Partagé" class="text-lg text-purple-500 ml-2 flex-shrink-0">🤝</span>` : ''}
+        </div>
+    `;
+
+    // Empêcher l'ouverture de la modale lors du clic sur la checkbox
+    li.querySelector('[data-action="toggle-completion"]')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Utiliser la collection d'origine du document si c'est un document partagé, sinon le type de la page
+        const docCollection = entry.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : pageConfig.type;
+        toggleCompletionStatus(docCollection, entry.id, e.target.checked);
+    });
+
+    // Écouteur pour l'ouverture de la modale d'édition
+    li.addEventListener('click', (e) => {
+        // Le comportement de la modale est déjà centralisé dans main.js, 
+        // nous nous assurons simplement que le clic sur la ligne l'ouvre.
+        // Utiliser le type effectif pour l'ouverture
+        showItemModal(entry, effectiveType);
+    });
+
+    return li;
+}
+
 export async function renderPageContent() { 
     const container = DOMElements.pageContent?.querySelector('.grid-container'); 
     if (!container) return; 
@@ -226,9 +319,6 @@ export async function renderPageContent() {
     // Créer une map pour garantir l'unicité par ID (les documents partagés priment sur les documents privés)
     const allDataMap = new Map();
     [...privateData, ...sharedData].forEach(doc => {
-        // Si le document est dans le cache partagé, c'est la version définitive, donc on ne l'écrase pas avec une version privée incomplète si elle a le même ID.
-        // Si la carte a un originalType, elle est passée de privée à partagée, l'ancienne ID privée ne doit plus exister.
-        // Cependant, nous nous assurons que nous prenons toujours la dernière version par ID.
         allDataMap.set(doc.id, doc);
     });
 
@@ -243,6 +333,15 @@ export async function renderPageContent() {
         dataToShow = dataToShow.filter(entry => !entry.isCompleted);
     }
     
+    // Tri par date d'échéance (plus proche d'abord)
+    if (config.isList) {
+        dataToShow.sort((a, b) => {
+            const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+            const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+            return dateA - dateB;
+        });
+    }
+
     // --- LOG DE DIAGNOSTIC ---
     console.log(`[UI Render] Page '${state.currentPageId}' (${effectiveType}). Total unique après agrégation: ${dataToShow.length}.`);
     // --- FIN LOG DE DIAGNOSTIC ---
@@ -257,20 +356,48 @@ export async function renderPageContent() {
         return; 
     } 
     
-    // CORRECTION CRITIQUE: Utilisation d'un try/catch par carte pour isoler la carte qui fait planter le rendu
-    const cardElements = (await Promise.all(dataToShow.map(entry => {
-        try {
-            return createCardElement(entry, config);
-        } catch (e) {
-            console.error("Erreur de rendu de la carte (ignorée):", entry.id, e);
-            showToast(`Erreur d'affichage d'un élément: ${entry.titre || 'Sans titre'}`, 'error');
-            return null; // Retourne null si le rendu échoue
-        }
-    }))).filter(Boolean); // Filtrer les éléments nulls
+    // NOUVELLE LOGIQUE DE RENDU : Liste ou Carte
+    let elements;
     
-    cardElements.forEach(cardEl => container.appendChild(cardEl)); 
-    
-    // Les écouteurs pour les boutons Terminé/À Faire ont été retirés
+    if (config.isList) {
+        // Rendu en Liste (pour TODO et ACTIONS)
+        const ul = document.createElement('ul');
+        ul.className = 'col-span-full divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800 rounded-lg shadow';
+        
+        elements = (await Promise.all(dataToShow.map(entry => {
+            try {
+                return createListItemElement(entry, config);
+            } catch (e) {
+                console.error("Erreur de rendu de la liste (ignorée):", entry.id, e);
+                showToast(`Erreur d'affichage d'un élément: ${entry.titre || 'Sans titre'}`, 'error');
+                return null;
+            }
+        }))).filter(Boolean); // Filtrer les éléments nulls
+        
+        elements.forEach(liEl => ul.appendChild(liEl));
+        container.appendChild(ul);
+        container.classList.remove('grid'); // Supprimer la classe grid pour le rendu en liste
+        container.classList.add('flex', 'flex-col');
+
+
+    } else {
+        // Rendu en Carte (par défaut)
+        container.classList.add('grid'); // Ajouter la classe grid
+        container.classList.remove('flex', 'flex-col');
+        
+        // CORRECTION CRITIQUE: Utilisation d'un try/catch par carte pour isoler la carte qui fait planter le rendu
+        elements = (await Promise.all(dataToShow.map(entry => {
+            try {
+                return createCardElement(entry, config);
+            } catch (e) {
+                console.error("Erreur de rendu de la carte (ignorée):", entry.id, e);
+                showToast(`Erreur d'affichage d'un élément: ${entry.titre || 'Sans titre'}`, 'error');
+                return null; // Retourne null si le rendu échoue
+            }
+        }))).filter(Boolean); // Filtrer les éléments nulls
+        
+        elements.forEach(cardEl => container.appendChild(cardEl)); 
+    }
 }
 
 // Fonction utilitaire pour exporter le contenu d'un document en HTML (pour Google Doc)
@@ -453,7 +580,8 @@ export async function showSharingModal(entry, originalType) {
 export async function showItemModal(entry, type) { 
     const isNew = !entry; 
     // Initialise liens à un tableau vide si manquant
-    const data = isNew ? { titre: '', liens: [] } : { ...entry, liens: entry.liens || [] }; 
+    // Inclut 'dueDate'
+    const data = isNew ? { titre: '', liens: [], dueDate: '' } : { ...entry, liens: entry.liens || [], dueDate: entry.dueDate || '' }; 
     
     // Déterminer le type effectif pour les contrôles du formulaire
     data.isShared = type === COLLECTIONS.COLLABORATIVE_DOCS || data.isShared; // S'assurer que isShared est conservé
@@ -463,6 +591,11 @@ export async function showItemModal(entry, type) {
     const isWallet = originalType === COLLECTIONS.WALLET; 
     const isCourses = originalType === COLLECTIONS.COURSES; 
     const isObjective = originalType === COLLECTIONS.OBJECTIFS; 
+    // Vérifie si c'est une action/todo
+    const isTodoAction = originalType === COLLECTIONS.TODO || originalType === COLLECTIONS.ACTIONS;
+
+    // NOUVEAU : Vérifie si c'est une Note (perso ou pro)
+    const isNote = originalType === COLLECTIONS.NOTES_PERSO || originalType === COLLECTIONS.NOTES_REUNION;
     
     const modalTitle = isNew ? `Ajouter un élément` : `Modifier : ${data.titre}`; 
     let formContent = ''; 
@@ -478,6 +611,27 @@ export async function showItemModal(entry, type) {
     } else if (isObjective) { 
         formContent = `<div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3"><div class="md:col-span-2"><label class="text-sm font-medium">Titre</label><input id="modal-titre" type="text" value="${data.titre || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Poids (%)</label><input id="modal-poids" type="number" min="0" max="100" value="${data.poids || 0}" class="${inputClasses}"></div><div class="md:col-span-2"><label class="text-sm font-medium">Description</label><textarea id="modal-description" class="${textareaClasses}">${data.description || ''}</textarea></div><div class="md:col-span-2 space-y-2"><div><label class="text-sm font-medium">Échelle Mini</label><input id="modal-echelle-min" type="text" value="${data.echelle?.min || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Échelle Cible</label><input id="modal-echelle-cible" type="text" value="${data.echelle?.cible || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Échelle Max</label><input id="modal-echelle-max" type="text" value="${data.echelle?.max || ''}" class="${inputClasses}"></div></div><div class="md:col-span-2"><label class="text-sm font-medium">Avancement (Description)</label><textarea id="modal-avancement" class="${textareaClasses}">${data.avancement || ''}</textarea></div><div class="md:col-span-2"><label class="text-sm font-medium">Statut</label><div class="flex gap-4 mt-2"><label class="flex items-center gap-2"><input type="radio" name="statut" value="min" ${data.statut === 'min' ? 'checked' : ''}> Mini (Rouge)</label><label class="flex items-center gap-2"><input type="radio" name="statut" value="cible" ${data.statut === 'cible' || !data.statut ? 'checked' : ''}> Cible (Jaune)</label><label class="flex items-center gap-2"><input type="radio" name="statut" value="max" ${data.statut === 'max' ? 'checked' : ''}> Max (Vert)</label></div></div></div>`; 
     } else if (isContentItem) { 
+        
+        // --- NOUVELLE SECTION POUR AJOUTER UN TODO RAPIDE (UNIQUEMENT DANS NOTES) ---
+        let quickTodoSection = '';
+
+        if (isNote) {
+            // Détermine la cible (TODO_PERSO ou ACTIONS) et le titre de la section
+            const targetCollection = originalType === COLLECTIONS.NOTES_PERSO ? COLLECTIONS.TODO : COLLECTIONS.ACTIONS;
+            const targetTitle = originalType === COLLECTIONS.NOTES_PERSO ? 'TODO rapide (Perso)' : 'Action rapide (Pro)';
+
+            quickTodoSection = `
+                <div class="mt-4 p-4 border dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+                    <h4 class="font-bold mb-2 text-md">Créer une ${targetTitle}</h4>
+                    <div class="flex flex-col md:flex-row gap-2">
+                        <input type="text" id="quick-todo-input" data-target-collection="${targetCollection}" placeholder="Nouvelle tâche..." class="${inputClasses} flex-grow">
+                        <input type="date" id="quick-todo-due-date" class="${inputClasses} w-auto md:w-1/4">
+                        <button id="add-quick-todo-btn" class="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg flex-shrink-0">Ajouter</button>
+                    </div>
+                </div>
+            `;
+        }
+        // --- FIN NOUVELLE SECTION ---
         
         // 1. Boutons de formatage
         const formattingToolbar = `
@@ -507,11 +661,15 @@ export async function showItemModal(entry, type) {
         // 3. Contenu principal
         formContent = `
             <div class="mb-4"><label class="text-sm font-medium">Titre</label><input id="modal-titre" type="text" value="${data.titre || ''}" class="${inputClasses}"></div>
+            ${isTodoAction ? 
+                `<div class="mb-4"><label class="text-sm font-medium">Date d'échéance</label><input id="modal-due-date" type="date" value="${data.dueDate || ''}" class="${inputClasses}"></div>` 
+                : ''}
             <div class="flex flex-col">
-                <label class="text-sm font-medium mb-1">Contenu</label>
+                <label class="text-sm font-medium mb-1">${isTodoAction ? 'Description (Action)' : 'Contenu'}</label>
                 ${formattingToolbar}
                 <div id="modal-contenu" contenteditable="true" class="w-full p-3 mt-1 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600 min-h-[150px]">${data.contenu || ''}</div>
             </div>
+            ${quickTodoSection}
             ${linksSection}
         `;
     }
@@ -618,7 +776,9 @@ export async function showItemModal(entry, type) {
              dataToSave = { 
                 titre: newTitre, 
                 contenu: document.getElementById('modal-contenu').innerHTML,
-                liens: data.liens || [] 
+                liens: data.liens || [],
+                // Ajout conditionnel de la date d'échéance
+                ...(isTodoAction && { dueDate: document.getElementById('modal-due-date').value || '' })
             }; 
         } else {
              dataToSave = { titre: newTitre };
@@ -726,8 +886,36 @@ export async function showItemModal(entry, type) {
             if (doc.exists()) renderCourseItems(doc.data().items, entry.id, data.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType); 
         }); 
     } 
+    
+    // 9. Logique d'ajout rapide de TODO (UNIQUEMENT dans les Notes Perso/Réunion)
+    document.getElementById('add-quick-todo-btn')?.addEventListener('click', async () => {
+        const todoInput = document.getElementById('quick-todo-input');
+        const todoDateInput = document.getElementById('quick-todo-due-date');
+        // Récupérer la collection cible
+        const targetCollection = todoInput.dataset.targetCollection;
+        
+        const todoText = todoInput.value.trim();
+        const todoDueDate = todoDateInput.value;
 
-    // 9. Auto-grow pour les Textareas
+        if (!todoText) return showToast("Veuillez saisir le texte de la tâche.", "error");
+
+        const todoData = {
+            titre: todoText,
+            contenu: '',
+            isCompleted: false,
+            dueDate: todoDueDate, // Sera géré par firestore.js si vide
+        };
+        
+        // Assurer que le TODO est ajouté dans la collection correcte (TODO ou ACTIONS)
+        await addDataItem(targetCollection, todoData);
+        
+        // Réinitialiser le champ et notifier l'utilisateur
+        todoInput.value = '';
+        todoDateInput.value = '';
+        showToast(`Tâche ajoutée à la section ${targetCollection === COLLECTIONS.TODO ? 'TODO Perso' : 'Actions Pro'} !`, 'success');
+    });
+
+    // 10. Auto-grow pour les Textareas
     const textareas = document.querySelectorAll('#modal-description, #modal-avancement'); 
     const autoGrow = (element) => { 
         if(!element) return; 
@@ -740,7 +928,7 @@ export async function showItemModal(entry, type) {
     }); 
     document.getElementById('modal-contenu')?.focus();
 
-    // 10. Gestion du téléchargement de fichier (Wallet)
+    // 11. Gestion du téléchargement de fichier (Wallet)
     function handleFileUpload(titre) { 
         const file = document.getElementById('file-input').files[0]; 
         if (!file) return showToast("Veuillez sélectionner un fichier.", "error"); 
@@ -858,3 +1046,4 @@ export function showPreferencesModal() {
             .catch(err => console.error('Erreur de copie:', err));
     }); 
 }
+

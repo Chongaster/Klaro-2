@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, addDoc, where, runTransaction, writeBatch, arrayUnion, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, addDoc, where, runTransaction, writeBatch, arrayUnion, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { ref, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 import { db, storage } from './firebase.js';
 import { firebaseConfig, COLLECTIONS, NAV_CONFIG, SHAREABLE_TYPES } from './config.js';
@@ -49,7 +49,39 @@ export function setupRealtimeListeners() {
 export async function saveUserPreferences(prefs) { if (!state.userId) return; const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings'); await setDoc(prefRef, prefs, { merge: true }); }
 export async function loadUserPreferences() { if (!state.userId) return state.userPreferences; const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings'); const docSnap = await getDoc(prefRef); return docSnap.exists() ? { ...state.userPreferences, ...docSnap.data() } : state.userPreferences; }
 export async function getNicknameByUserId(uid) { if (nicknameCache[uid]) return nicknameCache[uid]; const prefRef = doc(db, `artifacts/${appId}/users/${uid}/${COLLECTIONS.USER_PREFERENCES}`, 'settings'); const docSnap = await getDoc(prefRef); if (docSnap.exists() && docSnap.data().nickname) { nicknameCache[uid] = docSnap.data().nickname; return docSnap.data().nickname; } return uid.substring(0, 8); }
-export async function addDataItem(collectionName, data) { if (!state.userId) return; const path = `artifacts/${appId}/users/${state.userId}/${collectionName}`; await addDoc(collection(db, path), { ...data, ownerId: state.userId, createdAt: new Date() }); showToast("Élément ajouté !", 'success'); }
+
+/**
+ * Ajoute un nouvel élément à une collection Firestore.
+ * Ajoute automatiquement une date d'échéance par défaut pour les TODO/ACTIONS si non fournie.
+ * @param {string} collectionName - Nom de la collection.
+ * @param {object} data - Données à enregistrer.
+ */
+export async function addDataItem(collectionName, data) { 
+    if (!state.userId) return; 
+    const path = `artifacts/${appId}/users/${state.userId}/${collectionName}`; 
+    
+    const isTodoAction = collectionName === COLLECTIONS.TODO || collectionName === COLLECTIONS.ACTIONS;
+    
+    // Déterminer la date d'échéance. Si c'est un TODO/ACTION et qu'aucune date n'est fournie, 
+    // définir une date par défaut (aujourd'hui + 7 jours)
+    let dueDate = data.dueDate;
+    if (isTodoAction && !dueDate) {
+        const defaultDate = new Date();
+        defaultDate.setDate(defaultDate.getDate() + 7);
+        dueDate = defaultDate.toISOString().substring(0, 10);
+    }
+    
+    const finalData = { 
+        ...data, 
+        ownerId: state.userId, 
+        createdAt: new Date(),
+        ...(isTodoAction && { dueDate: dueDate }), // Ajout de la dueDate seulement pour les TODO/ACTIONS
+    };
+
+    await addDoc(collection(db, path), finalData); 
+    showToast("Élément ajouté !", 'success'); 
+}
+
 export async function updateDataItem(collectionName, id, data) { if (!state.userId) return; const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS ? `artifacts/${appId}/${collectionName}` : `artifacts/${appId}/users/${state.userId}/${collectionName}`; await updateDoc(doc(db, path, id), data); showToast("Mise à jour enregistrée.", 'success'); }
 export async function deleteDataItem(collectionName, id, filePath = null) { if (!state.userId) return; if (filePath) { try { await deleteObject(ref(storage, filePath)); } catch (error) { if (error.code !== 'storage/object-not-found') { showToast("Erreur de suppression du fichier joint.", "error"); return; } } } const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS ? `artifacts/${appId}/${collectionName}` : `artifacts/${appId}/users/${state.userId}/${collectionName}`; await deleteDoc(doc(db, path, id)); showToast("Élément supprimé.", 'success'); }
 export async function updateCourseItems(docId, collectionName, action) { if (!state.userId) return; const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS ? `artifacts/${appId}/${collectionName}/${docId}` : `artifacts/${appId}/users/${state.userId}/${collectionName}/${docId}`; const docRef = doc(db, path); try { const docSnap = await getDoc(docRef); if (!docSnap.exists()) throw new Error("Document non trouvé !"); let currentItems = docSnap.data().items || []; switch (action.type) { case 'add': currentItems.push({ ...action.payload }); break; case 'toggle': if (currentItems[action.payload.index]) currentItems[action.payload.index].completed = action.payload.completed; break; case 'delete': currentItems.splice(action.payload.index, 1); break; } await updateDoc(docRef, { items: currentItems }); } catch (error) { showToast("Erreur de mise à jour de la liste.", "error"); } }
