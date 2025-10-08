@@ -23,6 +23,7 @@ const DOMElements = {
 
 // --- GESTION DES MODALES ---
 export function showModal(content, maxWidthClass = 'max-w-xl') { 
+    if (!DOMElements.modalContainer || !DOMElements.modalOverlay) return; // Sécurité
     DOMElements.modalContainer.innerHTML = content; 
     DOMElements.modalContainer.className = `bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full ${maxWidthClass} max-h-[90vh] flex flex-col animate-slide-in-up`; 
     DOMElements.modalOverlay.classList.remove('hidden'); 
@@ -31,6 +32,7 @@ export function showModal(content, maxWidthClass = 'max-w-xl') {
 }
 
 export function hideModal() { 
+    if (!DOMElements.modalOverlay || !DOMElements.modalContainer) return; // Sécurité
     DOMElements.modalOverlay.classList.add('hidden'); 
     DOMElements.modalContainer.innerHTML = ''; 
 }
@@ -46,29 +48,41 @@ export function showConfirmationModal(message) {
 
 // --- GESTION DE L'AFFICHAGE (THÈME, CONNEXION, NAVIGATION) ---
 export function applyTheme(theme) { document.documentElement.classList.toggle('dark', theme === 'dark'); }
-export function updateConnectionStatus(isOnline) { DOMElements.connectionStatus.classList.toggle('online', isOnline); DOMElements.connectionStatus.classList.toggle('offline', !isOnline); DOMElements.connectionStatus.title = isOnline ? 'En ligne' : 'Hors ligne'; }
+export function updateConnectionStatus(isOnline) { 
+    if (!DOMElements.connectionStatus) return; // Sécurité
+    DOMElements.connectionStatus.classList.toggle('online', isOnline); 
+    DOMElements.connectionStatus.classList.toggle('offline', !isOnline); 
+    DOMElements.connectionStatus.title = isOnline ? 'En ligne' : 'Hors ligne'; 
+}
+
 export function updateAuthUI(user) { 
     const isLoggedIn = !!user; 
-    DOMElements.userEmailDisplay.textContent = isLoggedIn ? (user.isAnonymous ? 'Mode Invité' : (user.email || 'Connecté')) : 'Non connecté'; 
-    DOMElements.userNicknameDisplay.textContent = isLoggedIn ? (state.userPreferences.nickname || 'Pas de pseudo') : ''; 
-    DOMElements.authBtn.classList.toggle('hidden', isLoggedIn); 
-    DOMElements.preferencesBtn.classList.toggle('hidden', !isLoggedIn); 
-    DOMElements.signOutBtn.classList.toggle('hidden', !isLoggedIn); 
-    DOMElements.modeSelector.classList.toggle('hidden', !isLoggedIn); 
-    DOMElements.mainNav.classList.toggle('hidden', !isLoggedIn); 
-    DOMElements.adminBtn.classList.toggle('hidden', !state.isAdmin); 
+
+    // Sécurité: vérifier si les éléments existent avant de les manipuler
+    if (DOMElements.userEmailDisplay) DOMElements.userEmailDisplay.textContent = isLoggedIn ? (user.isAnonymous ? 'Mode Invité' : (user.email || 'Connecté')) : 'Non connecté'; 
+    if (DOMElements.userNicknameDisplay) DOMElements.userNicknameDisplay.textContent = isLoggedIn ? (state.userPreferences.nickname || 'Pas de pseudo') : ''; 
+    
+    // Toggle des boutons principaux
+    DOMElements.authBtn?.classList.toggle('hidden', isLoggedIn); 
+    DOMElements.preferencesBtn?.classList.toggle('hidden', !isLoggedIn); 
+    DOMElements.signOutBtn?.classList.toggle('hidden', !isLoggedIn); 
+    DOMElements.modeSelector?.classList.toggle('hidden', !isLoggedIn); 
+    DOMElements.mainNav?.classList.toggle('hidden', !isLoggedIn); 
+    DOMElements.adminBtn?.classList.toggle('hidden', !state.isAdmin); 
     
     if (isLoggedIn) { 
         const hiddenModes = state.userPreferences.hiddenModes || []; 
         document.querySelector('button[data-mode="pro"]')?.classList.toggle('hidden', hiddenModes.includes('pro')); 
         document.querySelector('button[data-mode="perso"]')?.classList.toggle('hidden', hiddenModes.includes('perso')); 
     } else { 
-        DOMElements.pageContent.innerHTML = ''; 
+        if (DOMElements.pageContent) DOMElements.pageContent.innerHTML = ''; 
     } 
 }
 
 export function setMode(mode) { 
     state.currentMode = mode; 
+
+    // Sécurité: vérifier si le modeSelector existe
     document.querySelectorAll('#modeSelector button').forEach(btn => { 
         const isActive = btn.dataset.mode === mode; 
         btn.classList.toggle('bg-white', isActive); 
@@ -79,16 +93,21 @@ export function setMode(mode) {
     }); 
     
     const navItems = NAV_CONFIG[mode]; 
-    DOMElements.mainNav.innerHTML = navItems.map(item => 
-        `<button class="nav-button text-white/80 hover:text-white hover:bg-white/20 px-3 py-2 rounded-md text-sm font-medium" data-target="${item.id}"><span class="mr-1">${item.icon}</span>${item.title}</button>`
-    ).join(''); 
+    
+    // Sécurité: vérifier si la nav principale existe avant de manipuler innerHTML
+    if (DOMElements.mainNav) {
+        DOMElements.mainNav.innerHTML = navItems.map(item => 
+            `<button class="nav-button text-white/80 hover:text-white hover:bg-white/20 px-3 py-2 rounded-md text-sm font-medium" data-target="${item.id}"><span class="mr-1">${item.icon}</span>${item.title}</button>`
+        ).join(''); 
+    }
     
     if (navItems.length > 0) showPage(navItems[0].id); 
 }
 
 export function showPage(pageId) { 
     state.currentPageId = pageId; 
-    DOMElements.mainNav.querySelectorAll('.nav-button').forEach(button => { 
+    
+    DOMElements.mainNav?.querySelectorAll('.nav-button').forEach(button => { 
         button.classList.toggle('bg-white/20', button.dataset.target === pageId); 
         button.classList.toggle('font-bold', button.dataset.target === pageId); 
     }); 
@@ -96,28 +115,35 @@ export function showPage(pageId) {
     const config = NAV_CONFIG[state.currentMode].find(p => p.id === pageId); 
     if (!config) return; 
     
-    const pageTemplate = document.getElementById('page-template').content.cloneNode(true); 
+    const pageTemplate = document.getElementById('page-template')?.content.cloneNode(true); 
+    if (!pageTemplate) return; // Sécurité
+    
     pageTemplate.querySelector('.page-title').textContent = config.title; 
     pageTemplate.querySelector('.page-description').textContent = config.description; 
     
     const addButton = pageTemplate.querySelector('.add-new-item-btn'); 
     if (config.type === COLLECTIONS.COLLABORATIVE_DOCS || config.id.includes('Terminees')) { 
-        addButton.style.display = 'none'; 
+        if (addButton) addButton.style.display = 'none'; 
     } else { 
-        addButton.dataset.type = config.type; 
+        if (addButton) addButton.dataset.type = config.type; 
     } 
     
-    DOMElements.pageContent.innerHTML = ''; 
-    DOMElements.pageContent.appendChild(pageTemplate); 
-    
-    DOMElements.pageContent.querySelector('.grid-container').innerHTML = `<p class="text-center text-gray-500 col-span-full mt-12">Chargement...</p>`; 
-    renderPageContent(); 
+    if (DOMElements.pageContent) {
+        DOMElements.pageContent.innerHTML = ''; 
+        DOMElements.pageContent.appendChild(pageTemplate); 
+        
+        // Affichage du chargement avant le rendu
+        DOMElements.pageContent.querySelector('.grid-container').innerHTML = `<p class="text-center text-gray-500 col-span-full mt-12">Chargement...</p>`; 
+        renderPageContent(); 
+    }
 }
 
 // --- FONCTIONS DE RENDU DES CARTES ET PAGES ---
 
 async function createCardElement(entry, pageConfig) { 
-    const cardTemplate = document.getElementById('card-template').content.cloneNode(true); 
+    const cardTemplate = document.getElementById('card-template')?.content.cloneNode(true); 
+    if (!cardTemplate) return document.createElement('div'); // Retourne un div vide si le template n'existe pas
+
     const card = cardTemplate.firstElementChild; 
     card.dataset.id = entry.id; 
     card.dataset.type = pageConfig.type; 
@@ -126,6 +152,7 @@ async function createCardElement(entry, pageConfig) {
     
     const effectiveType = entry.originalType || pageConfig.type; 
     
+    // Gestion spécifique du type Wallet (ouverture du fichier)
     if (effectiveType === COLLECTIONS.WALLET) { 
         card.style.cursor = 'pointer'; 
         card.addEventListener('click', (e) => { 
@@ -144,7 +171,6 @@ async function createCardElement(entry, pageConfig) {
 
     // --- Affichage des résumés spécifiques ---
     if (effectiveType === COLLECTIONS.OBJECTIFS) { 
-        // ... (Logique pour Objectifs)
         const statutColors = { min: 'bg-red-500', cible: 'bg-yellow-500', max: 'bg-green-500' };
         const statutText = { min: 'Mini', cible: 'Cible', max: 'Max' };
         const poids = entry.poids || 0;
@@ -152,17 +178,14 @@ async function createCardElement(entry, pageConfig) {
         summaryEl.innerHTML = `<div class="flex justify-between items-center text-xs font-semibold mb-2"><span>Poids: ${poids}%</span><span class="flex items-center gap-2">Statut: <span class="w-3 h-3 rounded-full ${statutColors[statut]}"></span> ${statutText[statut]}</span></div><div class="text-xs space-y-1"><p><strong>Mini:</strong> ${entry.echelle?.min || 'N/A'}</p><p><strong>Cible:</strong> ${entry.echelle?.cible || 'N/A'}</p><p><strong>Max:</strong> ${entry.echelle?.max || 'N/A'}</p></div><div class="mt-2 text-xs text-gray-600 dark:text-gray-400 border-t pt-2"><strong>Avancement:</strong> ${entry.avancement || ''}</div>`;
     
     } else if (effectiveType === COLLECTIONS.COURSES) { 
-        // ... (Logique pour Courses)
         const items = entry.items || []; 
         const completedItems = items.filter(item => item.completed).length; 
         summaryEl.textContent = `${completedItems} / ${items.length} articles cochés`; 
     
     } else if (effectiveType === COLLECTIONS.WALLET) { 
-        // ... (Logique pour Wallet)
         summaryEl.innerHTML = `<span class="font-medium text-blue-600 dark:text-blue-400 hover:underline">📄 ${entry.fileName || 'Fichier'}</span>`; 
     
     } else if (entry.contenu || (entry.liens && entry.liens.length > 0)) { 
-        // ... (Logique pour Notes/Actions/Voyages)
         let contentSummary = '';
         if (entry.contenu) {
             const tempDiv = document.createElement('div'); 
@@ -200,33 +223,42 @@ async function createCardElement(entry, pageConfig) {
 }
 
 export async function renderPageContent() { 
-    const container = DOMElements.pageContent.querySelector('.grid-container'); 
+    const container = DOMElements.pageContent?.querySelector('.grid-container'); 
     if (!container) return; 
     
     const config = NAV_CONFIG[state.currentMode].find(p => p.id === state.currentPageId); 
     if (!config) return; 
     
     let dataToShow = []; 
-    if (config.type === COLLECTIONS.COLLABORATIVE_DOCS) { 
+    const effectiveType = config.type;
+
+    if (effectiveType === COLLECTIONS.COLLABORATIVE_DOCS) { 
         // Filtrage des documents partagés entre Pro et Perso (basé sur le type original)
         dataToShow = state.sharedDataCache.filter(doc => {
-            const isProType = [COLLECTIONS.OBJECTIFS, COLLECTIONS.ACTIONS, COLLECTIONS.NOTES_REUNION].includes(doc.originalType);
+            const isProType = [COLLECTIONS.OBJECTIFS, COLLECTIONS.ACTIONS, COLLECTIONS.NOTES_REUNION, COLLECTIONS.WALLET].includes(doc.originalType); 
             return (state.currentMode === 'pro' && isProType) || (state.currentMode === 'perso' && !isProType);
         });
     } else { 
-        const privateData = state.privateDataCache[config.type] || []; 
-        const sharedData = state.sharedDataCache.filter(doc => doc.originalType === config.type); 
+        const privateData = state.privateDataCache[effectiveType] || []; 
+        const sharedData = state.sharedDataCache.filter(doc => doc.originalType === effectiveType); 
         dataToShow = [...privateData, ...sharedData]; 
     } 
 
     // Filtrage pour les vues "Terminées"
     if (config.id.includes('Terminees')) {
         dataToShow = dataToShow.filter(entry => entry.isCompleted);
-    } else if (config.type === COLLECTIONS.ACTIONS || config.type === COLLECTIONS.TODO) {
+    } else if (effectiveType === COLLECTIONS.ACTIONS || effectiveType === COLLECTIONS.TODO) {
         // Dans les vues standard TO DO, on n'affiche que les éléments NON complétés
         dataToShow = dataToShow.filter(entry => !entry.isCompleted);
     }
     
+    // --- LOG DE DIAGNOSTIC ---
+    if (effectiveType === COLLECTIONS.ACTIONS && state.currentPageId === 'actions') {
+        const completedCount = dataToShow.filter(entry => entry.isCompleted).length;
+        console.log(`[UI Render] Page '${state.currentPageId}' (ACTIONS). Total dans le cache: ${state.privateDataCache[effectiveType]?.length || 0}. Affiché après filtrage (NON COMPLÉTÉS): ${dataToShow.length}. Tâches complétées totales (cachées): ${completedCount}`);
+    }
+    // --- FIN LOG DE DIAGNOSTIC ---
+
     const searchTerm = (DOMElements.pageContent.querySelector('.searchBar')?.value || '').toLowerCase(); 
     if (searchTerm) dataToShow = dataToShow.filter(entry => JSON.stringify(entry).toLowerCase().includes(searchTerm)); 
     
@@ -248,9 +280,10 @@ export async function renderPageContent() {
             const type = btn.dataset.type;
             const isShared = btn.dataset.isShared === 'true';
             const collectionName = isShared ? COLLECTIONS.COLLABORATIVE_DOCS : type;
-            const isCompleted = !btn.textContent.includes('Terminé'); // Inverser l'état actuel
+            // Si le bouton affiche 'Terminé', le nouvel état est true
+            const newState = btn.textContent.trim() === 'Terminé'; 
 
-            await toggleCompletionStatus(collectionName, id, isCompleted);
+            await toggleCompletionStatus(collectionName, id, newState);
             
             // Re-render la page pour refléter le changement
             renderPageContent(); 
@@ -304,6 +337,7 @@ function showLinkModal(entry, originalType) {
         if (!title || !url) return showToast("Veuillez remplir le titre et l'URL.", "error");
 
         const newLink = { titre: title, url: url };
+        // Le tableau de liens est dans l'objet 'entry' passé à la modale parente
         const updatedLinks = [...(entry.liens || []), newLink];
         
         // Mettre à jour Firestore
@@ -427,7 +461,7 @@ export async function showSharingModal(entry, originalType) {
         unshareBtn.addEventListener('click', async () => {
             if (await showConfirmationModal("Arrêter le partage rendra ce document privé. Continuer ?")) {
                 await unshareDocument(entry);
-                hideModal(); // La fonction unshareDocument affiche déjà un toast.
+                hideModal(); 
                 renderPageContent(); // Rafraîchit la vue principale
             }
         });
@@ -437,10 +471,11 @@ export async function showSharingModal(entry, originalType) {
 // Ouvre la modale d'édition/création d'un élément
 export async function showItemModal(entry, type) { 
     const isNew = !entry; 
-    const data = isNew ? { titre: '', liens: [] } : entry; 
+    // Initialise liens à un tableau vide si manquant
+    const data = isNew ? { titre: '', liens: [] } : { ...entry, liens: entry.liens || [] }; 
     
     // Déterminer le type effectif pour les contrôles du formulaire
-    data.isShared = type === COLLECTIONS.COLLABORATIVE_DOCS; 
+    data.isShared = type === COLLECTIONS.COLLABORATIVE_DOCS || data.isShared; // S'assurer que isShared est conservé
     const originalType = data.originalType || type; 
     const isContentItem = [COLLECTIONS.NOTES_PERSO, COLLECTIONS.NOTES_REUNION, COLLECTIONS.VOYAGES, COLLECTIONS.ACTIONS, COLLECTIONS.TODO].includes(originalType);
     
@@ -455,17 +490,13 @@ export async function showItemModal(entry, type) {
 
     // --- Contenu du Formulaire ---
     if (isWallet) { 
-        // ... Logique Wallet ...
         formContent = `<div class="mb-4"><label class="text-sm font-medium">Titre</label><input id="modal-titre" type="text" value="${data.titre || ''}" class="${inputClasses}"></div>` + (isNew ? `<div class="mb-4"><label class="text-sm font-medium">Fichier</label><input id="file-input" type="file" class="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 mt-1"></div><div id="upload-progress-container" class="w-full bg-gray-200 rounded-full h-2.5 hidden"><div id="upload-progress-bar" class="bg-blue-600 h-2.5 rounded-full w-0"></div></div>` : `<div class="p-4 bg-gray-100 dark:bg-gray-700 rounded-lg text-center"><a href="${data.fileUrl}" target="_blank" class="text-blue-500 hover:underline font-bold">Voir : ${data.fileName}</a></div>`); 
     } else if (isCourses) { 
-        // ... Logique Courses ...
         const categoryOptions = COURSE_CATEGORIES.map(cat => `<option value="${cat}">${cat}</option>`).join(''); 
         formContent = `<div class="mb-4"><label class="text-sm font-medium">Titre de la liste</label><input id="modal-titre" type="text" value="${data.titre || ''}" class="${inputClasses}"></div><div id="course-items-list" class="mb-4 max-h-60 overflow-y-auto"></div>` + (!isNew ? `<div class="flex flex-col md:flex-row gap-2 mt-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg"><input type="text" id="new-course-item-input" placeholder="Ajouter un article..." class="${inputClasses}"><select id="new-course-category-select" class="p-3 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600">${categoryOptions}</select><button id="add-course-item-btn" class="bg-blue-600 text-white font-bold px-5 rounded-lg">Ajouter</button></div>` : `<p class="text-center text-gray-500">Enregistrez la liste pour ajouter des articles.</p>`); 
     } else if (isObjective) { 
-        // ... Logique Objectifs ...
         formContent = `<div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3"><div class="md:col-span-2"><label class="text-sm font-medium">Titre</label><input id="modal-titre" type="text" value="${data.titre || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Poids (%)</label><input id="modal-poids" type="number" min="0" max="100" value="${data.poids || 0}" class="${inputClasses}"></div><div class="md:col-span-2"><label class="text-sm font-medium">Description</label><textarea id="modal-description" class="${textareaClasses}">${data.description || ''}</textarea></div><div class="md:col-span-2 space-y-2"><div><label class="text-sm font-medium">Échelle Mini</label><input id="modal-echelle-min" type="text" value="${data.echelle?.min || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Échelle Cible</label><input id="modal-echelle-cible" type="text" value="${data.echelle?.cible || ''}" class="${inputClasses}"></div><div><label class="text-sm font-medium">Échelle Max</label><input id="modal-echelle-max" type="text" value="${data.echelle?.max || ''}" class="${inputClasses}"></div></div><div class="md:col-span-2"><label class="text-sm font-medium">Avancement (Description)</label><textarea id="modal-avancement" class="${textareaClasses}">${data.avancement || ''}</textarea></div><div class="md:col-span-2"><label class="text-sm font-medium">Statut</label><div class="flex gap-4 mt-2"><label class="flex items-center gap-2"><input type="radio" name="statut" value="min" ${data.statut === 'min' ? 'checked' : ''}> Mini (Rouge)</label><label class="flex items-center gap-2"><input type="radio" name="statut" value="cible" ${data.statut === 'cible' || !data.statut ? 'checked' : ''}> Cible (Jaune)</label><label class="flex items-center gap-2"><input type="radio" name="statut" value="max" ${data.statut === 'max' ? 'checked' : ''}> Max (Vert)</label></div></div></div>`; 
     } else if (isContentItem) { 
-        // --- Logique Contenu (Notes, Actions, etc.) ---
         
         // 1. Boutons de formatage
         const formattingToolbar = `
@@ -511,12 +542,17 @@ export async function showItemModal(entry, type) {
 
     if (!isNew) {
         actionButtons += `<button id="delete-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">🗑️ Supprimer</button>`;
-        actionButtons += `<button id="export-doc-btn" class="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-6 rounded-lg ml-2">Google Doc</button>`;
+        
+        // Bouton Google Doc est disponible pour Contenu et Objectifs
+        if (isContentItem || isObjective) {
+            actionButtons += `<button id="export-doc-btn" class="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-6 rounded-lg ml-2">Google Doc</button>`;
+        }
+        
         if (isShareable) {
             actionButtons += `<button id="open-share-modal-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-lg ml-2">🤝 Partager</button>`;
         }
     } else {
-        actionButtons += '<div></div>'; // Espace réservé pour aligner le bouton Enregistrer à droite
+        actionButtons += '<div></div>'; 
     }
     actionButtons += `<button id="save-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg ml-2">💾 ${isNew ? 'Enregistrer' : 'Mettre à jour'}</button>`;
 
@@ -538,7 +574,6 @@ export async function showItemModal(entry, type) {
     document.querySelectorAll('.formatting-toolbar button').forEach(button => { 
         button.addEventListener('click', (e) => { 
             e.preventDefault(); 
-            // document.execCommand est la méthode la plus fiable dans cet environnement pour le contenu éditable
             if(e.currentTarget.dataset.command) {
                 document.execCommand(e.currentTarget.dataset.command, false, null); 
             }
@@ -549,7 +584,6 @@ export async function showItemModal(entry, type) {
     // 2. Bouton Ajouter Lien (ouvre la modale dédiée)
     document.getElementById('insert-link-btn')?.addEventListener('click', (e) => {
         e.preventDefault();
-        // Ferme la modale parente, puis ouvre la modale des liens
         hideModal();
         showLinkModal(data, originalType);
     });
@@ -613,10 +647,22 @@ export async function showItemModal(entry, type) {
             await addDataItem(originalType, dataToSave); 
             hideModal(); // Fermer après une création
         } else { 
+            // Désactiver temporairement le bouton et afficher l'état de chargement
+            document.getElementById('save-btn').disabled = true;
+            document.getElementById('save-btn').textContent = 'Sauvegarde...';
+
             await updateDataItem(saveCollection, entry.id, dataToSave); 
-            // Ne pas fermer la modale après une mise à jour, comme demandé
-            data.titre = newTitre; // Mettre à jour le titre localement
+            
+            // Mettre à jour les données locales pour que la modale affiche le nouveau titre si nécessaire
+            Object.assign(data, dataToSave);
+
+            // Mise à jour de l'UI pour confirmer la modification
             document.querySelector('.modal h3').textContent = `Modifier : ${newTitre}`; 
+            showToast("Mise à jour enregistrée.", 'success');
+
+            // Réactiver le bouton (comme la modale reste ouverte)
+            document.getElementById('save-btn').disabled = false;
+            document.getElementById('save-btn').textContent = '💾 Mettre à jour';
         }
     }); 
 
@@ -630,7 +676,6 @@ export async function showItemModal(entry, type) {
 
     // 6. Bouton Partager (ouvre la modale dédiée)
     document.getElementById('open-share-modal-btn')?.addEventListener('click', () => {
-        // La modale d'édition NE se ferme pas ici. showSharingModal est par-dessus.
         showSharingModal(data, originalType); 
     });
 
@@ -644,21 +689,20 @@ export async function showItemModal(entry, type) {
             
             // Ajouter les liens au contenu HTML pour l'export
             const linksHTML = (data.liens || []).map(link => 
-                `<li><a href="${link.url}">${link.titre}</a></li>`
+                `<li><a href="${link.url}" target="_blank">${link.titre}</a></li>`
             ).join('');
             if (linksHTML) {
                 contentToExport += `<h2>Liens Associés</h2><ul>${linksHTML}</ul>`;
             }
 
         } else if (isObjective) {
-            // Recréer le contenu de l'objectif pour l'export
+            // Logique de récupération des champs d'objectif pour l'export
             const poids = document.getElementById('modal-poids').value || 0;
             const description = document.getElementById('modal-description').value || '';
             const min = document.getElementById('modal-echelle-min').value || '';
             const cible = document.getElementById('modal-echelle-cible').value || '';
             const max = document.getElementById('modal-echelle-max').value || '';
             const avancement = document.getElementById('modal-avancement').value || '';
-            // const statut = document.querySelector('input[name="statut"]:checked')?.value || 'cible'; // Pas nécessaire pour l'export simple
             
             contentToExport = `
                 <p><strong>Description:</strong> ${description.replace(/\n/g, '<br>')}</p>
@@ -678,7 +722,6 @@ export async function showItemModal(entry, type) {
 
     // 8. Logique spécifique aux Courses
     if (isCourses && !isNew) { 
-        // ... (Logique d'ajout d'article de course)
         const addItemBtn = document.getElementById('add-course-item-btn'); 
         const newItemInput = document.getElementById('new-course-item-input'); 
         const newCategorySelect = document.getElementById('new-course-category-select'); 
@@ -690,8 +733,8 @@ export async function showItemModal(entry, type) {
                 newItemInput.focus(); 
             } 
         }; 
-        addItemBtn.addEventListener('click', addItemAction); 
-        newItemInput.addEventListener('keydown', (e) => { 
+        addItemBtn?.addEventListener('click', addItemAction); 
+        newItemInput?.addEventListener('keydown', (e) => { 
             if (e.key === 'Enter') { 
                 e.preventDefault(); 
                 addItemAction(); 
@@ -703,7 +746,7 @@ export async function showItemModal(entry, type) {
         }); 
     } 
 
-    // 9. Auto-grow pour les Textareas et focus pour l'éditeur de contenu
+    // 9. Auto-grow pour les Textareas
     const textareas = document.querySelectorAll('#modal-description, #modal-avancement'); 
     const autoGrow = (element) => { 
         if(!element) return; 
@@ -722,12 +765,28 @@ export async function showItemModal(entry, type) {
         if (!file) return showToast("Veuillez sélectionner un fichier.", "error"); 
         const saveBtn = document.getElementById('save-btn'); 
         const progressBar = document.getElementById('upload-progress-bar'); 
-        saveBtn.disabled = true; 
-        saveBtn.textContent = 'Envoi...'; 
-        document.getElementById('upload-progress-container').classList.remove('hidden'); 
+        if (saveBtn) saveBtn.disabled = true; 
+        if (saveBtn) saveBtn.textContent = 'Envoi...'; 
+        const progressContainer = document.getElementById('upload-progress-container');
+        if (progressContainer) progressContainer.classList.remove('hidden'); 
+
         const filePath = `user_files/${state.userId}/${Date.now()}_${file.name}`; 
         const uploadTask = uploadBytesResumable(ref(storage, filePath), file); 
-        uploadTask.on('state_changed', (snapshot) => progressBar.style.width = `${(snapshot.bytesTransferred / snapshot.totalBytes) * 100}%`, (error) => { showToast("Échec de l'envoi.", "error"); saveBtn.disabled = false; }, async () => { const downloadURL = await getDownloadURL(uploadTask.snapshot.ref); addDataItem(COLLECTIONS.WALLET, { titre, fileName: file.name, fileUrl: downloadURL, filePath }); hideModal(); }); 
+        
+        uploadTask.on('state_changed', 
+            (snapshot) => { 
+                if (progressBar) progressBar.style.width = `${(snapshot.bytesTransferred / snapshot.totalBytes) * 100}%`; 
+            }, 
+            (error) => { 
+                showToast("Échec de l'envoi.", "error"); 
+                if (saveBtn) saveBtn.disabled = false; 
+            }, 
+            async () => { 
+                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref); 
+                addDataItem(COLLECTIONS.WALLET, { titre, fileName: file.name, fileUrl: downloadURL, filePath }); 
+                hideModal(); 
+            }
+        ); 
     }
 }
 
@@ -777,7 +836,7 @@ export function showPreferencesModal() {
     const content = `<div class="flex-shrink-0 p-4 border-b flex justify-between items-center"><h3 class="text-xl font-bold">Préférences</h3><button class="modal-close-btn text-3xl font-bold">&times;</button></div><div class="p-6 space-y-6 overflow-y-auto"><div><label class="block text-lg font-medium mb-2">Votre Pseudonyme</label><div class="flex gap-2"><input type="text" id="nickname-input" value="${state.userPreferences.nickname || ''}" class="w-full p-2 mt-1 border rounded-lg bg-white dark:bg-gray-900 dark:text-gray-200 dark:border-gray-600"><button id="save-nickname-btn" class="bg-blue-600 text-white px-4 rounded-lg">Sauvegarder</button></div></div><div><label class="block text-lg font-medium mb-2">Thème</label><div class="flex gap-4"><label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer"><input type="radio" name="theme" value="light" ${state.userPreferences.theme === 'light' ? 'checked' : ''}> ☀️ Clair</label><label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer"><input type="radio" name="theme" value="dark" ${state.userPreferences.theme === 'dark' ? 'checked' : ''}> 🌙 Sombre</label></div></div><div><label class="block text-lg font-medium mb-2">Mode de démarrage</label><div class="flex gap-4"><label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer"><input type="radio" name="startupMode" value="pro" ${state.userPreferences.startupMode === 'pro' ? 'checked' : ''}> 🏢 Pro</label><label class="flex items-center gap-2 p-3 border rounded-lg cursor-pointer"><input type="radio" name="startupMode" value="perso" ${state.userPreferences.startupMode === 'perso' ? 'checked' : ''}> 🏠 Perso</label></div></div><div><label class="block text-lg font-medium mb-2">Sections Visibles</label><div class="space-y-2"><label class="flex items-center gap-2"><input type="checkbox" name="visibleMode" value="pro" ${!hiddenModes.includes('pro') ? 'checked' : ''}> Afficher la section 🏢 Pro</label><label class="flex items-center gap-2"><input type="checkbox" name="visibleMode" value="perso" ${!hiddenModes.includes('perso') ? 'checked' : ''}> Afficher la section 🏠 Perso</label></div></div><div><label class="block text-lg font-medium mb-2">Votre ID Utilisateur</label><div class="flex items-center justify-between p-3 bg-gray-100 dark:bg-gray-700 rounded-lg"><span class="text-sm font-mono truncate">${state.userId}</span><button id="copy-user-id-btn" class="p-1" title="Copier"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></div></div></div>`; 
     showModal(content, 'max-w-md'); 
     
-    document.querySelector('#save-nickname-btn').addEventListener('click', async () => { 
+    document.querySelector('#save-nickname-btn')?.addEventListener('click', async () => { 
         const newNickname = document.querySelector('#nickname-input').value.trim().toLowerCase(); 
         const result = await updateNickname(newNickname); 
         showToast(result.message, result.success ? 'success' : 'error'); 
@@ -811,7 +870,7 @@ export function showPreferencesModal() {
         }); 
     }); 
     
-    document.querySelector('#copy-user-id-btn').addEventListener('click', () => { 
+    document.querySelector('#copy-user-id-btn')?.addEventListener('click', () => { 
         // Utilise la méthode moderne de l'API Clipboard
         navigator.clipboard.writeText(state.userId)
             .then(() => showToast("ID Utilisateur copié !", "info"))
