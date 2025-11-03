@@ -1,5 +1,6 @@
-// --- Version 5 (Stable) ---
-// Fichier non utilisé par l'application principale, mais conservé.
+// --- Version 5.3 (Modales superposées) ---
+// (Ce fichier est stable et n'est pas utilisé par l'application principale)
+
 export function setupCounter(element) {
   let counter = 0
   const setCounter = (count) => {

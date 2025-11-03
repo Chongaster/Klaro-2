@@ -1,5 +1,5 @@
-// --- Version 5 (Stable) ---
-console.log("--- CHARGEMENT state.js v5 ---");
+// --- Version 5.3 (Modales superposées) ---
+// (Ce fichier est stable)
 
 const state = {
   userId: null,
@@ -7,17 +7,14 @@ const state = {
   isAdmin: false,
   userPreferences: {
       theme: 'light',
-      startupMode: 'perso', // 'pro' ou 'perso'
+      startupMode: 'perso',
       nickname: '',
+      hiddenModes: []
   },
-  currentMode: 'perso', // 'pro' ou 'perso'
-  currentPageId: null, // L'ID de la page active (ex: 'objectifs')
-  
-  // Cache de données
-  privateDataCache: {}, // { objectifs: [], actions: [], ... }
-  sharedDataCache: [], // [ { ... }, { ... } ]
-  
-  // Gestion des écouteurs Firebase
+  currentMode: 'perso',
+  currentPageId: null,
+  privateDataCache: {},
+  sharedDataCache: [],
   unsubscribeListeners: [],
 };
 

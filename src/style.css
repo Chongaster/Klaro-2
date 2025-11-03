@@ -1,4 +1,4 @@
-/* --- Version 5.2 (Export + Courses UI) --- */
+/* --- Version 5.3 (Modales superposées) --- */
 
 /* --- Réinitialisation et Variables --- */
 :root {
@@ -496,6 +496,19 @@ html, body {
   gap: 8px;
 }
 
+/* Style pour la modale secondaire */
+#secondary-modal-overlay {
+  z-index: 60; /* S'affiche par-dessus la modale principale */
+  background-color: rgba(0, 0, 0, 0.2); /* Moins sombre */
+}
+.modal-container.secondary {
+  max-width: 550px; /* Légèrement plus petite */
+  /* Ajouter une ombre/bordure distincte */
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  border: 1px solid var(--accent-color);
+}
+
+
 /* Modale d'Authentification (spécifique) */
 .auth-modal-content {
   padding: 8px; /* Ajouté au padding du modal-body */
@@ -693,7 +706,7 @@ hr { border: none; border-top: 1px solid var(--border-color); }
 
 /* --- Modale Liste de Courses --- */
 
-/* NOUVEAU: Formulaire d'ajout global */
+/* Formulaire d'ajout global */
 .global-add-item-form {
   display: flex;
   gap: 8px;
@@ -828,7 +841,7 @@ hr { border: none; border-top: 1px solid var(--border-color); }
       display: block; /* Afficher le bouton retour */
   }
 
-  /* NOUVEAU: Améliorer le formulaire d'ajout de courses sur mobile */
+  /* Améliorer le formulaire d'ajout de courses sur mobile */
   .global-add-item-form {
       flex-direction: column;
       gap: 12px;

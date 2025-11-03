@@ -1,5 +1,5 @@
-// --- Version 5.2 (Export + Courses UI) ---
-console.log("--- CHARGEMENT ui.js v5.2 ---");
+// --- Version 5.5 (Correction Bug isNew + Modales superposées) ---
+console.log("--- CHARGEMENT ui.js v5.5 ---");
 
 import { ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -213,6 +213,8 @@ function createListItemElement(entry, type, isShared) {
     const li = document.createElement('li');
     li.className = 'list-item';
     li.dataset.id = entry.id;
+    // Utiliser le type d'origine pour que le clic ouvre la bonne modale
+    li.dataset.type = effectiveType; 
     if (entry.isShared) li.dataset.originalType = entry.originalType;
     if (entry.isCompleted) li.classList.add('completed');
     
@@ -377,6 +379,23 @@ function generateNavigation() {
 
 // --- GESTION DES MODALES ---
 
+// Définir les gestionnaires de fermeture pour les enlever proprement
+const primaryModalCloseHandler = (e) => {
+    const modalOverlay = document.getElementById('modal-overlay');
+    // Ferme si on clique sur l'overlay lui-même OU sur un bouton de fermeture
+    if (e.target === modalOverlay || e.target.closest('.modal-close-btn')) {
+        hideModal();
+    }
+};
+
+const secondaryModalCloseHandler = (e) => {
+    const modalOverlay = document.getElementById('secondary-modal-overlay');
+    if (e.target === modalOverlay || e.target.closest('.modal-close-btn')) {
+        hideSecondaryModal();
+    }
+};
+
+
 /**
  * Affiche une fenêtre modale avec un contenu HTML.
  * @param {string} contentHTML Le HTML à injecter dans la modale
@@ -394,17 +413,9 @@ export function showModal(contentHTML) {
         firstInput.focus();
     }
 
-    // Écouteur pour fermer la modale (sur l'overlay ou le bouton X)
-    const closeModal = (e) => {
-        // e.target est l'élément cliqué
-        // e.currentTarget est l'élément sur lequel l'écouteur est attaché (modalOverlay)
-        if (e.target === modalOverlay || e.target.closest('.modal-close-btn')) {
-            hideModal();
-        }
-    };
-    
-    // Attacher les écouteurs pour la fermeture
-    modalOverlay.addEventListener('click', closeModal);
+    // Nettoyer l'ancien écouteur avant d'en ajouter un nouveau
+    modalOverlay.removeEventListener('click', primaryModalCloseHandler);
+    modalOverlay.addEventListener('click', primaryModalCloseHandler);
 }
 
 /**
@@ -415,10 +426,48 @@ export function hideModal() {
     if (modalOverlay) {
         modalOverlay.classList.add('hidden');
         document.getElementById('modal-container').innerHTML = '';
+        // Nettoyer l'écouteur
+        modalOverlay.removeEventListener('click', primaryModalCloseHandler);
     }
     // Redéclenche le rendu de la page au cas où des données auraient changé
     renderPageContent();
 }
+
+/**
+ * Affiche une fenêtre modale secondaire (par-dessus la principale).
+ * @param {string} contentHTML Le HTML à injecter dans la modale
+ */
+function showSecondaryModal(contentHTML) {
+    const modalOverlay = document.getElementById('secondary-modal-overlay');
+    const modalContainer = document.getElementById('secondary-modal-container');
+    
+    modalContainer.innerHTML = contentHTML;
+    modalOverlay.classList.remove('hidden');
+
+    const firstInput = modalContainer.querySelector('input, textarea, [contenteditable]');
+    if (firstInput) {
+        firstInput.focus();
+    }
+
+    // Nettoyer l'ancien écouteur et attacher le nouveau
+    modalOverlay.removeEventListener('click', secondaryModalCloseHandler);
+    modalOverlay.addEventListener('click', secondaryModalCloseHandler);
+}
+
+/**
+ * Cache la fenêtre modale secondaire.
+ */
+function hideSecondaryModal() {
+    const modalOverlay = document.getElementById('secondary-modal-overlay');
+    if (modalOverlay) {
+        modalOverlay.classList.add('hidden');
+        document.getElementById('secondary-modal-container').innerHTML = '';
+        // Nettoyer l'écouteur
+        modalOverlay.removeEventListener('click', secondaryModalCloseHandler);
+    }
+    // NE PAS appeler renderPageContent() ici, car la modale principale est toujours ouverte.
+}
+
 
 /**
  * Construit le HTML pour l'éditeur de liens.
@@ -450,15 +499,20 @@ function buildLinksEditor(links = []) {
  * Affiche la modale pour un élément (création ou édition).
  * @param {object|null} entry L'objet de données (ou null si création)
  * @param {string} type Le type de collection (ex: 'actions')
+ * @param {boolean} [isSecondary=false] Si c'est une modale "par-dessus"
  */
-export async function showItemModal(entry, type) { 
+export async function showItemModal(entry, type, isSecondary = false) { 
     // Obtenir la date du jour pour le champ par défaut
     const todayISO = getTodayISOString();
 
-    const isNew = !entry; 
+    // *** CORRECTION BUG v5.5 ***
+    // 'isNew' doit vérifier si 'entry' est null OU s'il n'a pas d'ID
+    // (cas d'une nouvelle tâche liée qui est un objet sans id)
+    const isNew = !entry || !entry.id; 
+    
     // S'assurer que 'entry' est un objet même s'il est null
     const data = isNew ? 
-        { titre: '', liens: [], dueDate: '', parentId: null, parentCollection: null, reunionDate: todayISO, isArchived: false } : 
+        { titre: '', liens: [], dueDate: '', parentId: entry?.parentId || null, parentCollection: entry?.parentCollection || null, reunionDate: todayISO, isArchived: false } : 
         { ...entry, liens: entry.liens || [], dueDate: entry.dueDate || '', parentId: entry.parentId || null, parentCollection: entry.parentCollection || null, reunionDate: entry.reunionDate || todayISO, isArchived: entry.isArchived || false }; 
     
     data.isShared = type === COLLECTIONS.COLLABORATIVE_DOCS || data.isShared;
@@ -479,11 +533,14 @@ export async function showItemModal(entry, type) {
     if (data.parentId && data.parentCollection) {
         try {
             // Tenter de récupérer le document parent (Note, etc.)
-            const parentCollectionPath = data.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : data.parentCollection;
-            const parentRef = doc(db, `artifacts/${firebaseConfig.appId}/${parentCollectionPath}`, data.parentId);
+            // Le parent d'une tâche est toujours dans sa collection d'origine (jamais collaborative_docs)
+            const parentCollectionPath = data.parentCollection;
+            const parentRef = doc(db, `artifacts/${firebaseConfig.appId}/users/${state.userId}/${parentCollectionPath}`, data.parentId);
+            
             // Mettre en place un écouteur temps réel sur le parent
             onSnapshot(parentRef, (docSnap) => {
-                const parentLinkElement = document.getElementById('parent-link-display');
+                // La modale parente (principale) est toujours #modal-container
+                const parentLinkElement = document.getElementById('modal-container')?.querySelector('#parent-link-display');
                 if (parentLinkElement) {
                     if (docSnap.exists()) {
                         parentLinkElement.textContent = `Lié à : ${docSnap.data().titre || 'Document parent'}`;
@@ -552,7 +609,7 @@ export async function showItemModal(entry, type) {
     if (!isNew) {
         actionButtonsLeft += `<button id="delete-btn" class="btn btn-danger">🗑️ Supprimer</button>`;
         
-        // NOUVEAU: Bouton Exporter
+        // Bouton Exporter
         if (originalType === COLLECTIONS.NOTES_REUNION || originalType === COLLECTIONS.COURSES) {
             actionButtonsLeft += `<button id="export-btn" class="btn btn-secondary">📥 Exporter</button>`;
         }
@@ -592,16 +649,24 @@ export async function showItemModal(entry, type) {
         </div>
     `;
 
-    showModal(modalHTML);
+    // MODIFIÉ: Choisir quelle modale afficher et quel conteneur utiliser pour les écouteurs
+    let containerElement;
+    if (isSecondary) {
+        containerElement = document.getElementById('secondary-modal-container');
+        showSecondaryModal(modalHTML);
+    } else {
+        containerElement = document.getElementById('modal-container');
+        showModal(modalHTML);
+    }
 
-    // --- Attacher les écouteurs d'événements ---
+    // --- Attacher les écouteurs d'événements (SCOPÉS AU CONTAINER) ---
 
     // Écouteurs pour les Liens
-    document.getElementById('add-link-btn')?.addEventListener('click', (e) => {
+    containerElement.querySelector('#add-link-btn')?.addEventListener('click', (e) => {
         e.preventDefault();
-        const nameInput = document.getElementById('link-name');
-        const urlInput = document.getElementById('link-url');
-        const list = document.getElementById('links-list');
+        const nameInput = containerElement.querySelector('#link-name');
+        const urlInput = containerElement.querySelector('#link-url');
+        const list = containerElement.querySelector('#links-list');
         
         const name = nameInput.value.trim();
         const url = urlInput.value.trim();
@@ -625,7 +690,7 @@ export async function showItemModal(entry, type) {
         urlInput.value = '';
     });
 
-    document.getElementById('links-list')?.addEventListener('click', (e) => {
+    containerElement.querySelector('#links-list')?.addEventListener('click', (e) => {
         if (e.target.classList.contains('delete-link-btn')) {
             e.preventDefault();
             e.target.closest('li').remove();
@@ -633,18 +698,19 @@ export async function showItemModal(entry, type) {
     });
 
     // Bouton Enregistrer
-    document.getElementById('save-btn').addEventListener('click', async () => {
+    containerElement.querySelector('#save-btn').addEventListener('click', async () => {
+        // Plus besoin de 'activeModal', 'containerElement' est déjà scopé
         const path = data.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType;
         let payload = {};
 
         if (isCourses) {
             payload = {
-                titre: document.getElementById('modal-titre')?.value || 'Liste de courses',
+                titre: containerElement.querySelector('#modal-titre')?.value || 'Liste de courses',
                 categories: COURSE_CATEGORIES
             };
             const items = {};
             COURSE_CATEGORIES.forEach(cat => {
-                items[cat.id] = Array.from(document.querySelectorAll(`#category-${cat.id} .course-item`))
+                items[cat.id] = Array.from(containerElement.querySelectorAll(`#category-${cat.id} .course-item`))
                     .map(itemEl => ({
                         nom: itemEl.querySelector('.item-name').textContent,
                         checked: itemEl.querySelector('input[type="checkbox"]').checked
@@ -660,7 +726,9 @@ export async function showItemModal(entry, type) {
                     await addDataItem(path, payload);
                 }
                 showToast("Liste enregistrée !", "success");
-                hideModal();
+                // Choisir quelle modale fermer
+                if (isSecondary) hideSecondaryModal();
+                else hideModal();
             } catch (e) {
                 console.error("Erreur d'enregistrement:", e);
                 showToast("Erreur d'enregistrement.", "error");
@@ -670,21 +738,21 @@ export async function showItemModal(entry, type) {
 
         // Traitement pour les autres types
         payload = {
-            titre: document.getElementById('modal-titre')?.value || 'Sans titre',
+            titre: containerElement.querySelector('#modal-titre')?.value || 'Sans titre',
             updatedAt: new Date().toISOString()
         };
 
         if (isContentItem) {
-            payload.contenu = document.getElementById('modal-contenu')?.innerHTML || '';
+            payload.contenu = containerElement.querySelector('#modal-contenu')?.innerHTML || '';
             if (isTodoAction) {
-                payload.dueDate = document.getElementById('modal-due-date')?.value || null;
+                payload.dueDate = containerElement.querySelector('#modal-due-date')?.value || null;
             }
             if (originalType === COLLECTIONS.NOTES_REUNION) {
-                payload.reunionDate = document.getElementById('modal-reunion-date')?.value || todayISO;
+                payload.reunionDate = containerElement.querySelector('#modal-reunion-date')?.value || todayISO;
             }
 
             // Sauvegarder les liens
-            payload.liens = Array.from(document.querySelectorAll('#links-list li')).map(li => {
+            payload.liens = Array.from(containerElement.querySelectorAll('#links-list li')).map(li => {
                 return {
                     url: li.dataset.url, // Lire depuis data-url
                     name: li.dataset.name // Lire depuis data-name
@@ -692,11 +760,11 @@ export async function showItemModal(entry, type) {
             });
 
         } else if (isObjective) {
-            payload.poids = parseInt(document.getElementById('modal-poids')?.value || 0);
-            payload.mini = parseInt(document.getElementById('modal-mini')?.value || 0);
-            payload.avancement = parseInt(document.getElementById('modal-avancement')?.value || 0);
-            payload.cible = parseInt(document.getElementById('modal-cible')?.value || 100);
-            payload.max = parseInt(document.getElementById('modal-max')?.value || 100);
+            // CORRIGÉ: Bug 'poids' supprimé
+            payload.mini = parseInt(containerElement.querySelector('#modal-mini')?.value || 0);
+            payload.avancement = parseInt(containerElement.querySelector('#modal-avancement')?.value || 0);
+            payload.cible = parseInt(containerElement.querySelector('#modal-cible')?.value || 100);
+            payload.max = parseInt(containerElement.querySelector('#modal-max')?.value || 100);
         }
 
         // Gérer le lien parent (s'il est défini lors de la création)
@@ -714,7 +782,15 @@ export async function showItemModal(entry, type) {
                 await updateDataItem(path, data.id, payload);
                 showToast("Élément mis à jour !", "success");
             }
-            hideModal();
+            
+            // Choisir quelle modale fermer
+            if (isSecondary) {
+                hideSecondaryModal();
+                // Rafraîchir la page principale pour voir la nouvelle tâche
+                renderPageContent(); 
+            } else {
+                hideModal(); // Comportement normal (ferme et rafraîchit la page)
+            }
         } catch (e) {
             console.error("Erreur d'enregistrement:", e);
             showToast("Erreur d'enregistrement.", "error");
@@ -722,26 +798,35 @@ export async function showItemModal(entry, type) {
     });
 
     // Bouton Supprimer
-    document.getElementById('delete-btn')?.addEventListener('click', async () => {
+    containerElement.querySelector('#delete-btn')?.addEventListener('click', async () => {
         if (confirm("Êtes-vous sûr de vouloir supprimer cet élément ?")) {
             const path = data.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType;
             await deleteDataItem(path, data.id);
-            hideModal();
+            
+            // Choisir quelle modale fermer
+            if (isSecondary) {
+                hideSecondaryModal();
+                renderPageContent(); // Rafraîchir
+            } else {
+                hideModal();
+            }
         }
     });
 
-    // NOUVEAU: Bouton Exporter
-    document.getElementById('export-btn')?.addEventListener('click', () => {
+    // Bouton Exporter
+    containerElement.querySelector('#export-btn')?.addEventListener('click', () => {
         exportItemAsText(data, originalType);
     });
 
     // Bouton Archiver/Désarchiver
-    document.getElementById('archive-btn')?.addEventListener('click', async () => {
+    containerElement.querySelector('#archive-btn')?.addEventListener('click', async () => {
         const newArchiveState = !data.isArchived; // Basculer l'état
         const path = data.isShared ? COLLECTIONS.COLLABORATIVE_DOCS : originalType;
         try {
             await updateDataItem(path, data.id, { isArchived: newArchiveState });
             showToast(newArchiveState ? "Réunion archivée." : "Réunion désarchivée.", "info");
+            
+            // L'archivage ne se fait que depuis la modale principale
             hideModal();
         } catch (error) {
             showToast("Erreur lors de l'archivage.", "error");
@@ -749,39 +834,41 @@ export async function showItemModal(entry, type) {
     });
 
     // Bouton Partager
-    document.getElementById('open-share-modal-btn')?.addEventListener('click', () => {
-        // 'data' contient l'objet complet, 'originalType' est le type correct
-        showShareModal(data, originalType);
+    containerElement.querySelector('#open-share-modal-btn')?.addEventListener('click', () => {
+        // Passer le drapeau 'isSecondary'
+        showShareModal(data, originalType, isSecondary);
     });
     
     // Bouton Ajouter Tâche Liée
-    document.getElementById('add-linked-task-btn')?.addEventListener('click', (e) => {
+    containerElement.querySelector('#add-linked-task-btn')?.addEventListener('click', (e) => {
         const taskType = e.currentTarget.dataset.taskType;
         // Pré-remplir la nouvelle tâche avec l'ID et la collection du parent
         const newTaskData = {
             parentId: data.id,
             parentCollection: originalType,
-            // Si le parent est partagé, la tâche doit aussi l'être
-            isShared: data.isShared 
+            // Si le parent est partagé, la tâche doit aussi l'être (MAIS stockée en privé)
+            isShared: false // Une tâche liée est toujours privée
         };
-        // Ferme la modale actuelle et ouvre celle de la nouvelle tâche
-        hideModal();
-        showItemModal(newTaskData, taskType);
+        
+        // Ouvrir la tâche dans une modale secondaire
+        showItemModal(newTaskData, taskType, true); // <-- NOUVEAU paramètre 'true'
     });
 
     // Écouteurs pour la barre d'outils de formatage
-    document.querySelectorAll('.format-btn').forEach(button => {
+    containerElement.querySelectorAll('.format-btn').forEach(button => {
         button.addEventListener('click', (e) => {
             e.preventDefault(); // Empêche la perte de focus de l'éditeur
             const command = button.dataset.command;
             document.execCommand(command, false, null);
-            document.getElementById('modal-contenu').focus();
+            // S'assurer qu'on cible le bon éditeur (primaire ou secondaire)
+            const activeEditor = containerElement.querySelector('#modal-contenu');
+            if (activeEditor) activeEditor.focus();
         });
     });
 
     // Écouteurs spécifiques pour les listes de courses
     if (isCourses) {
-        attachCoursesEventListeners(data);
+        attachCoursesEventListeners(data, isSecondary);
     }
 }
 
@@ -794,7 +881,7 @@ function buildCoursesForm(data) {
     let categoriesHTML = '';
     const items = data.items || {};
 
-    // NOUVEAU: Formulaire d'ajout global
+    // Formulaire d'ajout global
     const categoriesOptions = COURSE_CATEGORIES.map(cat => 
         `<option value="${cat.id}">${cat.emoji} ${cat.name}</option>`
     ).join('');
@@ -843,15 +930,18 @@ function buildCoursesForm(data) {
 
 /**
  * Attache les écouteurs d'événements spécifiques à la modale de la liste de courses.
+ * @param {object} data L'objet de données
+ * @param {boolean} isSecondary Si la modale est secondaire
  */
-function attachCoursesEventListeners() {
-    const container = document.getElementById('modal-container');
+function attachCoursesEventListeners(data, isSecondary) {
+    const container = isSecondary ? document.getElementById('secondary-modal-container') : document.getElementById('modal-container');
+    if (!container) return;
 
-    // NOUVEAU: Gérer l'ajout d'un nouvel article (formulaire global)
-    document.getElementById('add-global-course-item-btn')?.addEventListener('click', (e) => {
+    // Gérer l'ajout d'un nouvel article (formulaire global)
+    container.querySelector('#add-global-course-item-btn')?.addEventListener('click', (e) => {
         e.preventDefault();
-        const nameInput = document.getElementById('new-course-item-name');
-        const categorySelect = document.getElementById('new-course-item-category');
+        const nameInput = container.querySelector('#new-course-item-name');
+        const categorySelect = container.querySelector('#new-course-item-category');
         
         const itemName = nameInput.value.trim();
         const categoryId = categorySelect.value;
@@ -872,7 +962,7 @@ function attachCoursesEventListeners() {
         }
     });
 
-    // Gérer la suppression d'un article (inchangé)
+    // Gérer la suppression d'un article
     container.addEventListener('click', (e) => {
         if (e.target.classList.contains('delete-item-btn')) {
             e.preventDefault();
@@ -880,7 +970,7 @@ function attachCoursesEventListeners() {
         }
     });
 
-    // Gérer le cochage/décochage d'un article (inchangé)
+    // Gérer le cochage/décochage d'un article
     container.addEventListener('change', (e) => {
         if (e.target.type === 'checkbox' && e.target.closest('.course-item')) {
             const itemLi = e.target.closest('.course-item');
@@ -893,8 +983,9 @@ function attachCoursesEventListeners() {
  * Affiche la modale de partage.
  * @param {object} entry L'objet de données à partager
  * @param {string} originalType Le type de collection d'origine
+ * @param {boolean} [isSecondary=false] Si la modale s'ouvre par-dessus une autre
  */
-function showShareModal(entry, originalType) {
+function showShareModal(entry, originalType, isSecondary = false) { 
     const content = `
         <div class="modal-header">
             <h2 class="modal-title">Partager "${entry.titre}"</h2>
@@ -923,16 +1014,29 @@ function showShareModal(entry, originalType) {
             `}
         </div>
     `;
-    showModal(content);
+    
+    // Choisir quelle modale afficher
+    if (isSecondary) {
+        showSecondaryModal(content);
+    } else {
+        showModal(content);
+    }
 
     // --- Écouteurs ---
+    // Note: Les écouteurs de partage sont attachés par ID, 
+    // car ils sont dans la modale active (primaire ou secondaire)
 
     // 1. Confirmer le partage initial
     document.getElementById('confirm-share-btn')?.addEventListener('click', async () => {
         try {
             await handleSharing(entry, originalType);
             showToast("Partage activé !", "success");
-            hideModal(); // Ferme la modale de partage
+            // Choisir quelle modale fermer
+            if (isSecondary) {
+                hideSecondaryModal();
+            } else {
+                hideModal();
+            }
         } catch (error) {
             console.error("Erreur lors du partage:", error);
             showToast("Erreur lors du partage.", "error");
@@ -944,7 +1048,12 @@ function showShareModal(entry, originalType) {
         if (confirm("Êtes-vous sûr de vouloir arrêter le partage de ce document ?")) {
             try {
                 await unshareDocument(entry.id);
-                hideModal();
+                // Choisir quelle modale fermer
+                if (isSecondary) {
+                    hideSecondaryModal();
+                } else {
+                    hideModal();
+                }
             } catch (error) {
                 console.error("Erreur d'arrêt du partage:", error);
             }
@@ -992,8 +1101,15 @@ function showShareModal(entry, originalType) {
                             members: [...entry.members, res.userId]
                         });
                         showToast(`${res.nickname} ajouté !`, "success");
-                        hideModal(); // Recharge la modale
-                        showShareModal(entry, originalType);
+                        
+                        // Recharger la modale de partage appropriée
+                        if (isSecondary) {
+                            hideSecondaryModal();
+                            showShareModal(entry, originalType, true);
+                        } else {
+                            hideModal(); // Recharge la modale
+                            showShareModal(entry, originalType, false);
+                        }
                     } catch (error) {
                         showToast("Erreur lors de l'ajout.", "error");
                     }
@@ -1051,7 +1167,7 @@ export function showPreferencesModal() {
     `;
     showModal(content);
 
-    // --- Écouteurs ---
+    // --- Écouteurs (Attachés par ID car c'est la modale principale) ---
 
     // Enregistrer le pseudo
     document.getElementById('save-nickname-btn').addEventListener('click', async () => {
@@ -1161,7 +1277,7 @@ export function hideMobilePage() {
     document.getElementById('app-container').classList.remove('mobile-content-visible');
 }
 
-// --- NOUVEAU: FONCTION D'EXPORT ---
+// --- FONCTION D'EXPORT ---
 
 /**
  * Exporte le contenu d'un élément (Note ou Courses) en fichier .txt
@@ -1186,7 +1302,23 @@ function exportItemAsText(entry, originalType) {
         textContent += `Liste de Courses: ${entry.titre}\r\n`;
         textContent += `------------------------------\r\n\r\n`;
         
-        const items = entry.items || {};
+        // Récupérer les items depuis la modale si elle est ouverte, sinon depuis 'entry.items'
+        const modal = document.getElementById('modal-container');
+        let items = {};
+        
+        if (modal && modal.querySelector('.courses-container')) {
+            // Lecture depuis la modale (données non enregistrées)
+             COURSE_CATEGORIES.forEach(cat => {
+                items[cat.id] = Array.from(modal.querySelectorAll(`#category-${cat.id} .course-item`))
+                    .map(itemEl => ({
+                        nom: itemEl.querySelector('.item-name').textContent,
+                        checked: itemEl.querySelector('input[type="checkbox"]').checked
+                    }));
+            });
+        } else {
+            // Lecture depuis les données sauvegardées
+            items = entry.items || {};
+        }
         
         COURSE_CATEGORIES.forEach(cat => {
             const categoryItems = items[cat.id] || [];
