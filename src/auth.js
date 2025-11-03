@@ -1,55 +1,177 @@
-import { onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+// --- Version 5 (Stable, Email-Only, Responsive) ---
+console.log("--- CHARGEMENT auth.js v5 ---");
+
+import { onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { auth } from './firebase.js';
 import state from './state.js';
-import { showModal, hideModal, applyTheme, updateAuthUI, setMode, checkOverdueTasksOnDataLoad } from './ui.js'; // Importer checkOverdueTasksOnDataLoad
+import { showModal, hideModal, applyTheme, updateAuthUI, setMode, checkOverdueTasksOnDataLoad } from './ui.js';
 import { showToast } from './utils.js';
-import { loadUserPreferences, setupRealtimeListeners, detachAllListeners } from "./firestore.js";
+import { loadUserPreferences, setupRealtimeListeners, detachAllListeners, saveUserPreferences } from "./firestore.js";
 import { ADMIN_EMAIL } from "./config.js";
 
-const googleProvider = new GoogleAuthProvider();
-
-export function initAuth() { 
-    // Événement déclenché une seule fois après la première détection de données chargées
+/**
+ * Initialise le gestionnaire d'authentification.
+ * Met en place un observateur pour les changements d'état de connexion.
+ */
+export function initAuth() {
+    
     const handleInitialDataLoad = () => {
         checkOverdueTasksOnDataLoad();
-        // Supprimer l'écouteur après le premier déclenchement pour s'assurer que le pop-up n'apparaît qu'une fois
         window.removeEventListener('datachanged', handleInitialDataLoad);
     };
 
-    onAuthStateChanged(auth, async (user) => { 
-        if (user) { 
-            state.userId = user.uid; 
-            state.userEmail = user.email; 
-            state.isAdmin = user.email === ADMIN_EMAIL; 
-            state.userPreferences = await loadUserPreferences(); 
-            applyTheme(state.userPreferences.theme); 
-            updateAuthUI(user); 
-            let startupMode = state.userPreferences.startupMode || 'perso'; 
-            if ((state.userPreferences.hiddenModes || []).includes(startupMode)) { 
-                startupMode = startupMode === 'perso' ? 'pro' : 'perso'; 
-            } 
-            setMode(startupMode); 
-            hideModal(); 
-            setupRealtimeListeners(); 
-            
-            // Attacher l'écouteur pour vérifier les tâches en retard après le premier chargement de données
-            // (La fonction setupRealtimeListeners dispatche 'datachanged' lors du premier chargement)
-            window.addEventListener('datachanged', handleInitialDataLoad);
+    onAuthStateChanged(auth, async (user) => {
+        const authScreen = document.getElementById('auth-screen');
+        const appContainer = document.getElementById('app-container');
 
-        } else { 
-            state.userId = null; 
-            state.userEmail = null; 
-            state.isAdmin = false; 
-            detachAllListeners(); 
-            applyTheme('light'); 
-            updateAuthUI(null); 
-            showAuthModal(); 
-            // S'assurer que l'écouteur est retiré en cas de déconnexion si jamais il était encore actif
-            window.removeEventListener('datachanged', handleInitialDataLoad);
-        } 
-    }); 
+        if (user) {
+            // --- Utilisateur Connecté ---
+            state.userId = user.uid;
+            state.userEmail = user.email;
+            state.isAdmin = user.email === ADMIN_EMAIL;
+            
+            // Charger les préférences ou en créer de nouvelles
+            let preferences = await loadUserPreferences();
+            if (!preferences) {
+                console.warn("Aucune préférence trouvée, création de nouvelles.");
+                preferences = state.userPreferences; // Utilise les défauts
+                // Tente de sauvegarder les préférences par défaut pour le nouvel utilisateur
+                try {
+                    await saveUserPreferences(preferences);
+                    console.log("Préférences par défaut créées pour le nouvel utilisateur.");
+                } catch (error) {
+                    console.error("Erreur lors de la création des préférences utilisateur:", error);
+                    // Si la sauvegarde échoue (règles de sécurité?), l'utilisateur est quand même connecté
+                }
+            }
+            
+            state.userPreferences = preferences;
+            
+            applyTheme(state.userPreferences.theme);
+            setMode(state.userPreferences.startupMode);
+            updateAuthUI(user);
+            
+            // Mettre en place les écouteurs temps réel
+            setupRealtimeListeners();
+            window.addEventListener('datachanged', handleInitialDataLoad, { once: true });
+
+            // Cacher l'écran de connexion et afficher l'application
+            authScreen.classList.add('hidden');
+            appContainer.classList.remove('hidden');
+            
+            // Fermer la modale de connexion si elle est ouverte
+            hideModal();
+
+        } else {
+            // --- Utilisateur Déconnecté ---
+            state.userId = null;
+            state.userEmail = null;
+            state.isAdmin = false;
+            
+            // Détacher tous les écouteurs
+            detachAllListeners();
+            
+            // Réinitialiser l'UI
+            updateAuthUI(null);
+            applyTheme('light'); // Thème par défaut
+            
+            // Afficher l'écran de connexion et cacher l'application
+            authScreen.classList.remove('hidden');
+            appContainer.classList.add('hidden');
+        }
+    });
 }
 
-export function handleSignOut() { signOut(auth).then(() => showToast('Déconnecté.', 'info')); }
-async function handleAuthAction(action, email, password) { try { await action(auth, email, password); showToast(action.name.includes('create') ? 'Inscription réussie !' : 'Connexion réussie !', 'success'); } catch (error) { showToast(`Erreur: ${error.code}`, 'error'); } }
-export function showAuthModal() { const content = `<div class="p-6 md:p-8"><h3 class="text-2xl font-bold mb-6 text-center">Connexion / Inscription</h3><div class="space-y-4"><div><label for="email" class="block text-sm font-bold mb-2">Email</label><input type="email" id="email" class="w-full p-3 border rounded-lg bg-white dark:bg-gray-700 dark:text-gray-200" autocomplete="email"></div><div><label for="password" class="block text-sm font-bold mb-2">Mot de passe</label><input type="password" id="password" class="w-full p-3 border rounded-lg bg-white dark:bg-gray-700 dark:text-gray-200" autocomplete="current-password"></div><div class="flex flex-col gap-3 pt-2"><button id="signInEmailBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg">Se connecter</button><button id="signUpEmailBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg">Créer un compte</button></div><div class="relative flex py-4 items-center"><div class="flex-grow border-t"></div><span class="flex-shrink mx-4 text-xs">OU</span><div class="flex-grow border-t"></div></div><button id="signInGoogleBtn" class="bg-white hover:bg-gray-100 text-gray-800 font-bold py-3 px-4 rounded-lg shadow flex items-center justify-center gap-3 border w-full"><img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google icon" class="w-5 h-5"> Continuer avec Google</button></div></div>`; showModal(content); document.getElementById('signInEmailBtn').addEventListener('click', () => handleAuthAction(signInWithEmailAndPassword, document.getElementById('email').value, document.getElementById('password').value)); document.getElementById('signUpEmailBtn').addEventListener('click', () => handleAuthAction(createUserWithEmailAndPassword, document.getElementById('email').value, document.getElementById('password').value)); document.getElementById('signInGoogleBtn').addEventListener('click', () => signInWithPopup(auth, googleProvider).catch(err => showToast(`Erreur: ${err.code}`, 'error'))); }
+/**
+ * Gère la déconnexion de l'utilisateur.
+ */
+export function handleSignOut() {
+    signOut(auth).catch(error => {
+        console.error("Erreur de déconnexion:", error);
+        showToast("Erreur lors de la déconnexion.", "error");
+    });
+}
+
+/**
+ * Affiche la modale d'authentification (Email/Mot de passe).
+ */
+export function showAuthModal() {
+    const content = `
+        <div class="modal-header">
+            <h2 class="modal-title">Connexion / Création</h2>
+            <button class="modal-close-btn">X</button>
+        </div>
+        <div class="modal-body">
+            <div class="auth-modal-content">
+                <p class="modal-subtitle">Entrez vos identifiants.</p>
+                
+                <div class="form-group">
+                    <label for="email" class="form-label">Email</label>
+                    <input id="email" type="email" class="form-input" autocomplete="email">
+                </div>
+                
+                <div class="form-group">
+                    <label for="password" class="form-label">Mot de passe</label>
+                    <input id="password" type="password" class="form-input" autocomplete="current-password">
+                </div>
+                
+                <div class="modal-auth-actions">
+                    <button id="signInEmailBtn" class="btn btn-primary">Se connecter</button>
+                    <button id="signUpEmailBtn" class="btn btn-secondary">Créer un compte</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    showModal(content);
+    
+    // Ajout des écouteurs aux boutons de la modale
+    document.getElementById('signInEmailBtn').addEventListener('click', () => {
+        handleAuthAction(
+            signInWithEmailAndPassword, 
+            document.getElementById('email').value, 
+            document.getElementById('password').value
+        );
+    });
+    
+    document.getElementById('signUpEmailBtn').addEventListener('click', () => {
+        handleAuthAction(
+            createUserWithEmailAndPassword, 
+            document.getElementById('email').value, 
+            document.getElementById('password').value
+        );
+    });
+}
+
+/**
+ * Gère l'action d'authentification (connexion ou création) pour l'email.
+ * @param {Function} authFunction La fonction Firebase à appeler (signInWithEmailAndPassword ou createUserWithEmailAndPassword)
+ * @param {string} email L'email de l'utilisateur.
+ * @param {string} password Le mot de passe de l'utilisateur.
+ */
+async function handleAuthAction(authFunction, email, password) {
+    if (!email || !password) {
+        showToast("Veuillez remplir l'email et le mot de passe.", "error");
+        return;
+    }
+
+    try {
+        await authFunction(auth, email, password);
+        // Le onAuthStateChanged s'occupera du reste (fermeture de la modale, etc.)
+        showToast("Opération réussie !", "success");
+    } catch (error) {
+        console.error("Erreur d'authentification:", error);
+        let message = "Erreur d'authentification.";
+        if (error.code === 'auth/wrong-password') {
+            message = "Mot de passe incorrect.";
+        } else if (error.code === 'auth/user-not-found') {
+            message = "Utilisateur non trouvé.";
+        } else if (error.code === 'auth/email-already-in-use') {
+            message = "Cet email est déjà utilisé.";
+        } else if (error.code === 'auth/weak-password') {
+            message = "Le mot de passe doit comporter au moins 6 caractères.";
+        }
+        showToast(message, "error");
+    }
+}
+

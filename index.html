@@ -2,95 +2,83 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Klaro ✨</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✅</text></svg>">
-    
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet">
-    
-    <link rel="stylesheet" href="/style.css">
-
-    <script>
-        // Configuration de Tailwind pour le mode sombre basé sur une classe
-        tailwind.config = {
-            darkMode: 'class',
-        }
-    </script>
+    <title>Klaro - Gestion de Tâches</title>
+    <!-- Import de la nouvelle feuille de style -->
+    <link rel="stylesheet" href="./src/style.css">
+    <!-- Import de la police Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body class="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors duration-300">
+<body class="light-theme">
 
-    <div id="app-container" class="flex flex-col h-screen">
+    <!-- Écran de Connexion (Initialement visible) -->
+    <div id="auth-screen" class="auth-container">
+        <div class="auth-box">
+            <h1 class="auth-title">Klaro</h1>
+            <p class="auth-subtitle">Connectez-vous pour continuer</p>
+            
+            <!-- Bouton Email (Uniquement) -->
+            <button id="authEmailBtn" class="auth-button email">
+                Continuer avec Email
+            </button>
+            
+            <p id="connection-status" class="connection-status"></p>
+        </div>
+    </div>
 
-        <header class="bg-gray-800 dark:bg-gray-950 text-white shadow-md z-20">
-            <div class="container mx-auto px-4 py-3 flex justify-between items-center">
-                <div class="flex items-center gap-3">
-                     <h1 class="text-2xl md:text-3xl font-extrabold">Klaro</h1>
-                     <div id="connection-status" class="w-3 h-3 rounded-full bg-gray-500" title="Hors ligne"></div>
+    <!-- Interface Principale (Initialement cachée) -->
+    <div id="app-container" class="app-layout hidden">
+
+        <!-- Panneau de Navigation (Gauche) -->
+        <nav id="main-nav" class="nav-panel">
+            <div class="nav-header">
+                <div class="user-info">
+                    <span id="userNicknameDisplay" class="user-nickname"></span>
+                    <span id="userEmailDisplay" class="user-email"></span>
                 </div>
-                <div class="flex items-center gap-3">
-                    <div class="text-right hidden md:block">
-                        <span id="userEmailDisplay" class="text-sm text-gray-300 block">Non connecté</span>
-                        <span id="userNicknameDisplay" class="text-xs text-gray-500 font-bold"></span>
-                    </div>
-                    <button id="authBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Connexion</button>
-                    <button id="adminBtn" class="hidden p-2 rounded-full hover:bg-white/20 transition-colors" title="Administration">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                    </button>
-                    <button id="preferencesBtn" class="hidden p-2 rounded-full hover:bg-white/20 transition-colors" title="Préférences">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                    </button>
-                    <button id="signOutBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors hidden">Déconnexion</button>
+                <!-- Sélecteur de Mode (Pro / Perso) -->
+                <div id="modeSelector" class="mode-selector">
+                    <button id="pro-mode-btn" data-mode="pro" class="mode-button active">Pro</button>
+                    <button id="perso-mode-btn" data-mode="perso" class="mode-button">Perso</button>
                 </div>
             </div>
-            <div id="modeSelector" class="bg-gray-700 dark:bg-gray-800 flex justify-center gap-2 p-2 hidden">
-                <button data-mode="pro" class="px-5 py-2 text-base font-bold rounded-lg transition-all duration-200">🏢 Pro</button>
-                <button data-mode="perso" class="px-5 py-2 text-base font-bold rounded-lg transition-all duration-200">🏠 Perso</button>
-            </div>
-            <nav id="main-nav" class="bg-white/10 flex flex-wrap justify-center p-1 hidden"></nav>
-        </header>
 
-        <main class="flex-grow overflow-y-auto p-4 md:p-6">
-            <div id="page-content" class="container mx-auto">
-                </div>
+            <!-- Listes de Navigation (générées par JS) -->
+            <div id="nav-list-pro" class="nav-list-container"></div>
+            <div id="nav-list-perso" class="nav-list-container hidden"></div>
+
+            <div class="nav-footer">
+                <button id="preferencesBtn" class="nav-footer-button" title="Préférences">⚙️</button>
+                <button id="signOutBtn" class="nav-footer-button" title="Déconnexion">Logout</button>
+                <button id="adminBtn" class="nav-footer-button hidden" title="Admin">👑</button>
+            </div>
+        </nav>
+
+        <!-- Panneau de Contenu (Droite) -->
+        <main id="page-content" class="content-panel">
+            <!-- L'en-tête et le contenu de la page sont générés par JS -->
+             <div class="content-header">
+                 <!-- Bouton Retour pour mobile -->
+                <button id="back-to-nav-btn" class="back-button">&lt;</button>
+                <h2 id="page-title-placeholder"></h2>
+            </div>
+            <div id="page-content-wrapper">
+                <!-- Le contenu (cartes/listes) sera inséré ici -->
+            </div>
         </main>
     </div>
 
-    <div id="modal-overlay" class="fixed inset-0 bg-black bg-opacity-60 z-40 flex items-center justify-center p-4 hidden animate-fade-in">
-        <div id="modal-container" class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-h-[90vh] flex flex-col animate-slide-in-up">
-            </div>
+    <!-- Conteneur pour les fenêtres modales -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div id="modal-container" class="modal-container">
+            <!-- Le contenu de la modale est généré par JS -->
+        </div>
     </div>
 
-    <template id="page-template">
-        <div class="page-wrapper">
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                <div>
-                    <h2 class="page-title text-3xl font-bold text-gray-900 dark:text-gray-100"></h2>
-                    <p class="page-description text-gray-600 dark:text-gray-400 mt-1"></p>
-                </div>
-                <button class="add-new-item-btn bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg cursor-pointer text-lg w-full md:w-auto whitespace-nowrap shadow-md transition-transform hover:scale-105">➕ Ajouter</button>
-            </div>
-            <input type="text" class="searchBar w-full p-3 mb-6 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200" placeholder="Rechercher...">
-            <div class="grid-container grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
-        </div>
-    </template>
-
-    <template id="card-template">
-        <div class="card bg-white dark:bg-gray-800 p-5 rounded-xl shadow-lg cursor-pointer transition-all duration-300 relative flex flex-col border border-gray-200 dark:border-gray-700 hover:-translate-y-1 hover:shadow-xl dark:hover:shadow-blue-500/20">
-            <span class="card-icon absolute top-4 right-4 text-2xl opacity-40"></span>
-            <div class="flex-grow flex flex-col">
-                <h3 class="card-title text-xl font-bold text-gray-800 dark:text-gray-100 mb-2 break-words pr-8"></h3>
-                <div class="card-summary text-gray-600 dark:text-gray-400 text-sm flex-grow"></div>
-                <div class="card-footer mt-auto pt-3 text-sm flex justify-between items-center">
-                    <div class="tags-display flex flex-wrap gap-2"></div>
-                    <span class="owner-display text-xs text-gray-500 dark:text-gray-400 font-medium"></span>
-                </div>
-            </div>
-        </div>
-    </template>
-    
-    <script type="module" src="/src/main.js"></script>
-
+    <!-- Scripts (Type Module pour Imports/Exports) -->
+    <script type="module" src="./src/main.js"></script>
 </body>
 </html>
+
