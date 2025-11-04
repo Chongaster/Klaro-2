@@ -1,113 +1,119 @@
-// --- Version 5.3 (Modales superposées) ---
-console.log("--- CHARGEMENT main.js v5.3 ---");
+// --- Version 5.15 (Email Uniquement) ---
+console.log("--- CHARGEMENT main.js v5.15 ---");
 
 import { initAuth, handleSignOut, showAuthModal } from './auth.js';
-import { setMode, showPage, updateConnectionStatus, renderPageContent, showItemModal, showPreferencesModal, showMobilePage, hideMobilePage } from './ui.js';
+import { 
+    setMode, 
+    showPage, 
+    updateConnectionStatus, 
+    renderPageContent, 
+    showItemModal, 
+    showPreferencesModal,
+    showMobilePage,
+    hideMobilePage
+} from './ui.js';
 import { debounce } from './utils.js';
 import state from './state.js';
-import { COLLECTIONS } from './config.js';
-import { updateDataItem } from './firestore.js';
 
+// --- Initialisation ---
 function initializeApp() {
     initAuth();
     initializeEventListeners();
     updateConnectionStatus(navigator.onLine);
 }
 
+// --- Écouteurs d'événements ---
 function initializeEventListeners() {
-    // Écouteur pour le bouton "Continuer avec Email"
+    
+    // Authentification
     document.getElementById('authEmailBtn').addEventListener('click', () => {
         showAuthModal();
     });
-    
-    // Écouteurs de la navigation principale
     document.getElementById('signOutBtn').addEventListener('click', handleSignOut);
     document.getElementById('preferencesBtn').addEventListener('click', showPreferencesModal);
 
-    // Sélecteur de mode Pro/Perso
+    // Changement de Mode (Pro/Perso)
     document.getElementById('modeSelector').addEventListener('click', e => {
         const button = e.target.closest('button[data-mode]');
-        if (button) setMode(button.dataset.mode);
+        if (button) {
+            setMode(button.dataset.mode);
+        }
     });
 
-    // Navigation (clic sur un menu)
-    document.getElementById('main-nav').addEventListener('click', e => {
+    // Navigation principale (Menu de gauche)
+    document.getElementById('main-nav-list').addEventListener('click', e => {
         const button = e.target.closest('.nav-button[data-target]');
         if (button) {
-            showPage(button.dataset.target);
-            showMobilePage(); // Affiche le contenu sur mobile
+            const pageId = button.dataset.target;
+            showPage(pageId);
+            showMobilePage(); // Affiche le panneau de contenu sur mobile
         }
     });
-
-    // Bouton Retour (mobile)
+    
+    // Bouton Retour (Mobile)
     document.getElementById('back-to-nav-btn').addEventListener('click', hideMobilePage);
 
-    // Écouteurs sur le panneau de contenu (utilisant la délégation d'événements)
-    const contentWrapper = document.getElementById('page-content-wrapper');
-
-    contentWrapper.addEventListener('click', e => {
-        // Clic sur le bouton "Ajouter"
+    // Contenu de la page (Clics sur les cartes, listes, et bouton "Ajouter")
+    document.getElementById('page-content-wrapper').addEventListener('click', e => {
+        
+        // Bouton "Ajouter"
         const addButton = e.target.closest('.add-new-item-btn');
         if (addButton) {
-            showItemModal(null, addButton.dataset.type, false); // Ouvre la modale principale
+            showItemModal(null, addButton.dataset.type);
             return;
         }
         
-        // Clic sur une Carte ou un Élément de Liste
-        const itemElement = e.target.closest('.card[data-id], .list-item[data-id]');
-        if (itemElement) {
-            // Ne pas ouvrir la modale si on clique sur la checkbox
-            if (e.target.matches('.list-item-checkbox') || e.target.matches('[data-action="toggle-completion"]')) {
-                return;
-            }
-
-            const itemId = itemElement.dataset.id;
-            const itemType = itemElement.dataset.type || itemElement.dataset.originalType; // Utilise originalType pour les partagés
-            
-            const allPrivateData = Object.values(state.privateDataCache).flat();
-            const allData = [...allPrivateData, ...state.sharedDataCache];
-            const entry = allData.find(item => item.id === itemId);
-            
-            if (entry) {
-                // Déterminer le type correct à passer (l'original si partagé, sinon le type de base)
-                const typeToShow = entry.originalType || itemType;
-                showItemModal(entry, typeToShow, false); // Ouvre la modale principale
-            } else {
-                console.error("Données de l'élément introuvables:", itemId);
-            }
+        // Clic sur une Carte
+        const card = e.target.closest('.card[data-id]');
+        if (card) {
+            handleItemClick(card.dataset.id, card.dataset.type, card.dataset.originalType);
             return;
         }
         
-        // Clic sur une Checkbox de complétion
-        const checkbox = e.target.closest('[data-action="toggle-completion"]');
-        if (checkbox) {
-            const li = checkbox.closest('.list-item[data-id]');
-            if (!li) return;
-            
-            const itemId = li.dataset.id;
-            const itemType = li.dataset.type || li.dataset.originalType;
-            const isShared = !!li.dataset.originalType;
-            
-            // Trouver la collection (chemin) où se trouve l'élément
-            const collectionPath = isShared ? COLLECTIONS.COLLABORATIVE_DOCS : itemType;
-            const newCompletedState = checkbox.checked;
-
-            updateDataItem(collectionPath, itemId, { isCompleted: newCompletedState })
-                .catch(err => {
-                    console.error("Erreur de mise à jour:", err);
-                    checkbox.checked = !newCompletedState; // Annuler le changement visuel
-                });
+        // Clic sur un élément de Liste (mais pas sur la checkbox)
+        const listItem = e.target.closest('.list-item[data-id]');
+        if (listItem && !e.target.matches('.list-item-checkbox')) {
+            handleItemClick(listItem.dataset.id, listItem.dataset.type, listItem.dataset.originalType);
+            return;
         }
     });
 
-    // Écouteur centralisé qui appelle le rendu de manière optimisée
+    // Gestion centralisée des clics sur les items (cartes ou listes)
+    function handleItemClick(itemId, itemType, originalType) {
+        // Le 'type' d'un document partagé est toujours COLLABORATIVE_DOCS
+        // L''originalType' nous dit ce que c'était avant (ex: 'actions')
+        const effectiveType = originalType || itemType;
+        
+        let entry;
+        if (itemType === 'collaborative_docs') {
+            entry = state.sharedDataCache.find(item => item.id === itemId);
+        } else {
+            // Recherche dans le cache privé
+            const privateData = state.privateDataCache[effectiveType] || [];
+            entry = privateData.find(item => item.id === itemId);
+            
+            // Fallback: si on ne le trouve pas, il est peut-être partagé (logique v5.14)
+            if (!entry) {
+                 entry = state.sharedDataCache.find(item => item.id === itemId);
+            }
+        }
+
+        if (entry) {
+            showItemModal(entry, itemType); // On passe le 'type' (collaborative_docs)
+        } else {
+            console.error("Données de l'élément introuvables:", itemId);
+        }
+    }
+
+    // Écouteur centralisé pour le rafraîchissement des données
     const debouncedRender = debounce(renderPageContent, 50);
     window.addEventListener('datachanged', debouncedRender);
 
+    // Statut de la connexion
     window.addEventListener('online', () => updateConnectionStatus(true));
     window.addEventListener('offline', () => updateConnectionStatus(false));
 }
 
-// Lancer l'application
+// Lancement de l'application
 document.addEventListener('DOMContentLoaded', initializeApp);
 

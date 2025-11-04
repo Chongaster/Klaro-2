@@ -1,59 +1,49 @@
-// --- Version 5.3 (Modales superposées) ---
+// --- Version 5.15 (Ensemble Complet) ---
+console.log("--- CHARGEMENT utils.js v5.15 ---");
 
-/**
- * Affiche une notification (toast) en bas de l'écran.
- * @param {string} message Le message à afficher
- * @param {'info'|'success'|'error'} type Le type de toast
- */
 export function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
     const toast = document.createElement('div');
-    
-    let bgColorClass = 'bg-info'; // Classe par défaut (bleu)
-    if (type === 'success') {
-        bgColorClass = 'bg-success'; // Vert
-    } else if (type === 'error') {
-        bgColorClass = 'bg-danger'; // Rouge
-    }
-    
-    toast.className = `toast ${bgColorClass} show`;
+    toast.className = `toast bg-${type}`; // Les classes bg-info, bg-success, bg-danger sont dans style.css
     toast.textContent = message;
     
-    document.body.appendChild(toast);
+    container.appendChild(toast);
     
-    // Supprimer le toast après 4 secondes
+    // Animer l'apparition
+    setTimeout(() => {
+        toast.classList.add('show');
+    }, 10); // Léger délai pour permettre la transition CSS
+    
+    // Disparition
     setTimeout(() => {
         toast.classList.remove('show');
-        // Supprimer l'élément du DOM après la transition
-        setTimeout(() => toast.remove(), 500); 
-    }, 4000);
+        // Supprimer l'élément après la transition
+        setTimeout(() => {
+            toast.remove();
+        }, 500);
+    }, 3000); // Durée d'affichage
 }
 
-/**
- * Crée une fonction "debounced" qui retarde l'invocation de func.
- * @param {Function} func La fonction à "debouncer"
- * @param {number} wait Le délai en millisecondes
- * @returns {Function} La nouvelle fonction "debounced"
- */
-export function debounce(func, wait) { 
-    let timeout; 
-    return function executedFunction(...args) { 
-        const later = () => { 
-            clearTimeout(timeout); 
-            func(...args); 
-        }; 
-        clearTimeout(timeout); 
-        timeout = setTimeout(later, wait); 
-    }; 
-};
+export function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
 
-/**
- * Retourne la date du jour au format YYYY-MM-DD.
- * @returns {string}
- */
+// Fonction pour obtenir la date du jour au format YYYY-MM-DD
 export function getTodayISOString() {
     const today = new Date();
     // Ajuster pour le fuseau horaire local
-    today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
-    return today.toISOString().split('T')[0];
+    const offset = today.getTimezoneOffset();
+    const adjustedToday = new Date(today.getTime() - (offset*60*1000));
+    return adjustedToday.toISOString().split('T')[0];
 }
 

@@ -1,398 +1,449 @@
-// --- Version 5.3 (Modales superposées) ---
-// (Ce fichier est stable)
+// --- Version 5.15 (Ensemble Complet) ---
+console.log("--- CHARGEMENT firestore.js v5.15 ---");
 
-import { collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, addDoc, where, runTransaction, writeBatch, arrayUnion, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { 
+    collection, 
+    doc, 
+    getDoc, 
+    setDoc, 
+    updateDoc, 
+    deleteDoc, 
+    onSnapshot, 
+    query, 
+    addDoc, 
+    where, 
+    runTransaction, 
+    writeBatch, 
+    arrayUnion, 
+    getDocs,
+    Timestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { ref, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 import { db, storage } from './firebase.js';
-import { firebaseConfig, COLLECTIONS, NAV_CONFIG, SHAREABLE_TYPES } from './config.js';
+import { firebaseConfig, COLLECTIONS, SHAREABLE_TYPES } from './config.js';
 import state from './state.js';
 import { showToast } from "./utils.js";
 import { hideModal } from "./ui.js";
 
 const appId = firebaseConfig.appId;
-let nicknameCache = {}; // Cache pour les pseudos
+let nicknameCache = {};
 
-/**
- * Détache tous les écouteurs temps réel actifs.
- */
-export function detachAllListeners() { 
-    state.unsubscribeListeners.forEach(unsubscribe => unsubscribe()); 
-    state.unsubscribeListeners = []; 
+// --- Gestion des Écouteurs Temps Réel ---
+
+export function detachAllListeners() {
+    state.unsubscribeListeners.forEach(unsubscribe => unsubscribe());
+    state.unsubscribeListeners = [];
 }
 
-/**
- * Met en place les écouteurs temps réel pour les données privées et partagées.
- */
 export function setupRealtimeListeners() {
     if (!state.userId) return;
-    detachAllListeners();
+    detachAllListeners(); // Nettoyer les anciens écouteurs
     
-    // Événement global pour notifier l'UI d'un changement
-    const onDataChange = () => window.dispatchEvent(new CustomEvent('datachanged'));
+    let initialLoads = 0;
+    const totalListeners = Object.keys(COLLECTIONS).length - 3; // Moins USER_PREF, NICKNAMES, COLLAB
+    
+    const onDataChange = () => {
+        // Dispatch l'événement global pour rafraîchir l'UI
+        window.dispatchEvent(new CustomEvent('datachanged'));
+    };
+    
+    const onInitialLoad = () => {
+        initialLoads++;
+        // On ne dispatch l'événement "datachanged" qu'une fois tout chargé
+        if (initialLoads >= totalListeners) {
+             onDataChange();
+        }
+    };
 
-    // Écouteur pour les documents partagés
+    // Écouteur pour les documents partagés avec moi
     const sharedQuery = query(
         collection(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`), 
         where('members', 'array-contains', state.userId)
     );
-    state.unsubscribeListeners.push(onSnapshot(sharedQuery, (snapshot) => { 
-        state.sharedDataCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        onDataChange();
-    }, (error) => console.error("Erreur listener partagé:", error)));
-
-    // Écouteurs pour toutes les collections privées
-    const privateCollections = Object.values(COLLECTIONS).filter(
-        c => c !== COLLECTIONS.COLLABORATIVE_DOCS && c !== COLLECTIONS.USER_PREFERENCES && c !== COLLECTIONS.NICKNAMES
-    );
+    state.unsubscribeListeners.push(onSnapshot(sharedQuery, (snapshot) => {
+        state.sharedDataCache = snapshot.docs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data(), 
+            isShared: true 
+        }));
+        onDataChange(); // Les partages rafraîchissent toujours l'UI
+    }, (error) => console.error("Erreur écoute partagés:", error)));
     
-    privateCollections.forEach(collName => {
-        const collQuery = query(collection(db, `artifacts/${appId}/users/${state.userId}/${collName}`));
-        state.unsubscribeListeners.push(onSnapshot(collQuery, (snapshot) => {
-            state.privateDataCache[collName] = snapshot.docs.map(doc => ({ 
-                id: doc.id, 
-                ...doc.data(),
-                collectionName: collName // Ajouter le nom de la collection pour référence
-            }));
-            onDataChange();
-        }, (error) => console.error(`Erreur listener ${collName}:`, error)));
-    });
-}
+    // Écouteurs pour les collections privées
+    const privateCollections = [
+        COLLECTIONS.OBJECTIFS, COLLECTIONS.ACTIONS, COLLECTIONS.NOTES_REUNION, 
+        COLLECTIONS.TODO, COLLECTIONS.VOYAGES, COLLECTIONS.NOTES_PERSO, 
+        COLLECTIONS.COURSES
+    ];
 
-
-// --- GESTION DES PRÉFÉRENCES ET PSEUDOS ---
-
-/**
- * Charge les préférences de l'utilisateur (ou crée un document par défaut).
- * @returns {object} Les préférences utilisateur
- */
-export async function loadUserPreferences() {
-    if (!state.userId) throw new Error("ID utilisateur manquant.");
-    
-    const prefDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.USER_PREFERENCES}`, state.userId);
-    
-    try {
-        const docSnap = await getDoc(prefDocRef);
+    privateCollections.forEach(collectionName => {
+        const q = query(collection(db, `artifacts/${appId}/users/${state.userId}/${collectionName}`));
         
-        if (docSnap.exists()) {
-            // Fusionner les préférences par défaut avec celles enregistrées
-            const defaults = { theme: 'light', startupMode: 'perso', nickname: '', hiddenModes: [] };
-            return { ...defaults, ...docSnap.data() };
-        } else {
-            // Le document n'existe pas, c'est une première connexion
-            const defaultPrefs = {
-                theme: 'light',
-                startupMode: 'perso',
-                nickname: state.userEmail.split('@')[0], // Pseudo par défaut
-                hiddenModes: []
-            };
-            // Tenter de créer le document de préférences
-            await setDoc(prefDocRef, defaultPrefs);
-            return defaultPrefs;
-        }
-    } catch (error) {
-        console.error("Erreur lors du chargement/création des préférences:", error);
-        // Si la création échoue (règles de sécurité?), renvoyer les défauts
-        if (error.code === 'permission-denied') {
-             showToast("Problème de permissions. Contactez l'admin.", "error");
-        }
-        // Renvoyer des préférences par défaut pour que l'app ne plante pas
-        return { theme: 'light', startupMode: 'perso', nickname: '', hiddenModes: [] };
-    }
-}
-
-/**
- * Met à jour le pseudo de l'utilisateur (dans les préférences et la collection NICKNAMES).
- * @param {string} newNickname Le nouveau pseudo
- */
-export async function updateNickname(newNickname) {
-    if (!state.userId) throw new Error("Utilisateur non connecté.");
-    if (newNickname.length < 3) throw new Error("Pseudo trop court (3 min).");
-
-    const prefDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.USER_PREFERENCES}`, state.userId);
-    const newNicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, newNickname);
-    const oldNickname = state.userPreferences.nickname;
-    
-    await runTransaction(db, async (transaction) => {
-        // 1. Vérifier si le nouveau pseudo est déjà pris
-        const newNicknameDoc = await transaction.get(newNicknameRef);
-        if (newNicknameDoc.exists()) {
-            throw new Error(`Le pseudo "${newNickname}" est déjà pris.`);
-        }
-
-        // 2. Supprimer l'ancien pseudo s'il existe
-        if (oldNickname) {
-            const oldNicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, oldNickname);
-            transaction.delete(oldNicknameRef);
-        }
-
-        // 3. Créer le nouveau pseudo
-        transaction.set(newNicknameRef, { 
-            userId: state.userId, 
-            email: state.userEmail // Stocker l'email pour la recherche
-        });
-
-        // 4. Mettre à jour les préférences utilisateur
-        transaction.update(prefDocRef, { nickname: newNickname });
+        state.unsubscribeListeners.push(onSnapshot(q, (snapshot) => {
+            state.privateDataCache[collectionName] = snapshot.docs.map(doc => ({ 
+                id: doc.id, 
+                ...doc.data() 
+            }));
+            if (initialLoads < totalListeners) onInitialLoad();
+            else onDataChange();
+        }, (error) => console.error(`Erreur écoute ${collectionName}:`, error)));
     });
-
-    // Mettre à jour l'état local
-    state.userPreferences.nickname = newNickname;
-    nicknameCache = {}; // Vider le cache des pseudos
 }
 
-/**
- * Sauvegarde un ou plusieurs champs de préférences utilisateur.
- * @param {object} prefsToUpdate Champs à mettre à jour (ex: { theme: 'dark' })
- */
-export async function saveUserPreferences(prefsToUpdate) {
+
+// --- Gestion des Préférences Utilisateur ---
+
+export async function saveUserPreferences(prefs) {
     if (!state.userId) return;
-    const prefDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.USER_PREFERENCES}`, state.userId);
-    try {
-        await updateDoc(prefDocRef, prefsToUpdate);
-    } catch (error) {
-        console.error("Erreur sauvegarde préférences:", error);
-    }
+    const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings');
+    await setDoc(prefRef, prefs, { merge: true });
 }
 
-/**
- * Récupère le pseudo d'un utilisateur par son UID (avec cache).
- * @param {string} userId
- * @returns {string} Le pseudo ou 'Utilisateur inconnu'
- */
-export async function getNicknameByUserId(userId) {
-    if (nicknameCache[userId]) {
-        return nicknameCache[userId];
+export async function loadUserPreferences() {
+    if (!state.userId) return null;
+    const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings');
+    const docSnap = await getDoc(prefRef);
+    return docSnap.exists() ? { ...state.userPreferences, ...docSnap.data() } : null; // Renvoie null si n'existe pas
+}
+
+export async function createUserPreferences() {
+    if (!state.userId) return state.userPreferences;
+    // Tenter de générer un pseudo auto
+    const emailPrefix = state.userEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    let newNickname = emailPrefix.substring(0, 15);
+    
+    // Vérifier si ce pseudo est dispo
+    const nicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, newNickname);
+    const nicknameSnap = await getDoc(nicknameRef);
+    
+    const prefsToSave = { ...state.userPreferences };
+
+    if (!nicknameSnap.exists()) {
+        // Dispo, on le sauvegarde
+        await runTransaction(db, async (transaction) => {
+            const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings');
+            transaction.set(prefRef, { ...prefsToSave, nickname: newNickname });
+            transaction.set(nicknameRef, { userId: state.userId });
+        });
+        prefsToSave.nickname = newNickname;
+    } else {
+        // Non dispo, on sauvegarde juste les prefs sans pseudo
+        await saveUserPreferences(prefsToSave);
     }
+    
+    return prefsToSave;
+}
+
+
+// --- Gestion des Pseudonymes (Nicknames) ---
+
+export async function getNicknameByUserId(uid) {
+    if (!uid) return 'Inconnu';
+    if (nicknameCache[uid]) return nicknameCache[uid];
+    
+    // Optimisation: si c'est moi, j'utilise mon pseudo local
+    if (uid === state.userId && state.userPreferences.nickname) {
+        return state.userPreferences.nickname;
+    }
+
+    const prefRef = doc(db, `artifacts/${appId}/users/${uid}/${COLLECTIONS.USER_PREFERENCES}`, 'settings');
     try {
-        const prefDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.USER_PREFERENCES}`, userId);
-        const docSnap = await getDoc(prefDocRef);
+        const docSnap = await getDoc(prefRef);
         if (docSnap.exists() && docSnap.data().nickname) {
-            nicknameCache[userId] = docSnap.data().nickname;
+            nicknameCache[uid] = docSnap.data().nickname;
             return docSnap.data().nickname;
         }
-    } catch (error) {
-        console.error("Erreur getNickname:", error);
+    } catch (e) {
+        console.error("Erreur getNickname:", e);
     }
-    return 'Utilisateur inconnu';
+    return uid.substring(0, 8); // Fallback
 }
 
-/**
- * Recherche des pseudos (pour le partage).
- * @param {string} query La recherche
- * @param {Array<string>} excludeMembers Les membres déjà dans la liste
- * @returns {Array<object>}
- */
-export async function searchNicknames(query, excludeMembers = []) {
-    const q = query(
-        collection(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`),
-        where('__name__', '>=', query),
-        where('__name__', '<=', query + '\uf8ff'),
-        limit(5)
-    );
-    const snapshot = await getDocs(q);
-    const results = [];
-    snapshot.forEach(doc => {
-        if (!excludeMembers.includes(doc.data().userId)) {
-            results.push({
-                nickname: doc.id,
-                userId: doc.data().userId,
-                email: doc.data().email
-            });
-        }
-    });
-    return results;
+export async function updateNickname(newNickname) {
+    if (!state.userId || !newNickname) {
+        return { success: false, message: "Pseudo invalide." };
+    }
+    if (newNickname === state.userPreferences.nickname) {
+        return { success: false, message: "C'est déjà votre pseudo." };
+    }
+    
+    try {
+        await runTransaction(db, async (transaction) => {
+            const newNicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, newNickname);
+            const docSnap = await transaction.get(newNicknameRef);
+            
+            if (docSnap.exists() && docSnap.data().userId !== state.userId) {
+                throw new Error("Ce pseudonyme est déjà utilisé.");
+            }
+            
+            // Supprimer l'ancien pseudo s'il existe
+            if (state.userPreferences.nickname) {
+                const oldNicknameRef = doc(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`, state.userPreferences.nickname);
+                transaction.delete(oldNicknameRef);
+            }
+            
+            // Définir le nouveau
+            transaction.set(newNicknameRef, { userId: state.userId });
+            
+            // Mettre à jour les préférences
+            const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings');
+            transaction.update(prefRef, { nickname: newNickname });
+        });
+        
+        return { success: true, message: "Pseudonyme mis à jour !" };
+    } catch (error) {
+        console.error("Erreur updateNickname:", error);
+        return { success: false, message: error.message || "Échec de la sauvegarde." };
+    }
 }
 
-// --- CRUD DE BASE (Ajouter, Mettre à jour, Supprimer) ---
+export async function searchNicknames(searchTerm) {
+    if (!state.userId || searchTerm.length < 2) return [];
+    try {
+        // Cette query est limitée car Firestore ne permet pas de "commence par" !=
+        // On récupère juste des pseudos autres que le mien
+        const q = query(
+            collection(db, `artifacts/${appId}/${COLLECTIONS.NICKNAMES}`),
+            where('userId', '!=', state.userId)
+        );
+        const snapshot = await getDocs(q);
+        
+        const matchingNicknames = snapshot.docs
+            .map(doc => ({ nickname: doc.id, userId: doc.data().userId }))
+            .filter(n => n.nickname.startsWith(searchTerm.toLowerCase()));
+            
+        return matchingNicknames;
+    } catch (error) {
+        console.error("Erreur de recherche de pseudonymes:", error);
+        return [];
+    }
+}
 
-/**
- * Ajoute un nouvel élément à une collection privée.
- * @param {string} collectionName
- * @param {object} data
- */
-export async function addDataItem(collectionName, data) {
-    if (!state.userId) throw new Error("Utilisateur non connecté.");
+
+// --- CRUD (Create, Read, Update, Delete) ---
+
+export async function addDataItem(collectionName, data, parentId = null, parentCollection = null) {
+    if (!state.userId) return;
     const path = `artifacts/${appId}/users/${state.userId}/${collectionName}`;
-    // Ajouter l'ID de l'utilisateur aux données (utile ?)
-    data.ownerId = state.userId;
-    await addDoc(collection(db, path), data);
-}
-
-/**
- * Met à jour un élément dans une collection (privée ou partagée).
- * @param {string} collectionName
- * @param {string} docId
- * @param {object} data
- */
-export async function updateDataItem(collectionName, docId, data) {
-    if (!state.userId) throw new Error("Utilisateur non connecté.");
     
-    let path;
-    if (collectionName === COLLECTIONS.COLLABORATIVE_DOCS) {
-        path = `artifacts/${appId}/${collectionName}`;
-    } else {
-        path = `artifacts/${appId}/users/${state.userId}/${collectionName}`;
-    }
+    const finalData = {
+        ...data,
+        ownerId: state.userId,
+        createdAt: Timestamp.now(), // Utiliser Timestamp
+        parentId: parentId || null,
+        parentCollection: parentCollection || null
+    };
     
-    const docRef = doc(db, path, docId);
-    await updateDoc(docRef, data);
-}
-
-/**
- * Supprime un élément d'une collection (privée ou partagée).
- * @param {string} collectionName
- * @param {string} docId
- */
-export async function deleteDataItem(collectionName, docId) {
-    if (!state.userId) throw new Error("Utilisateur non connecté.");
-    
-    let path;
-    if (collectionName === COLLECTIONS.COLLABORATIVE_DOCS) {
-        path = `artifacts/${appId}/${collectionName}`;
-    } else {
-        path = `artifacts/${appId}/users/${state.userId}/${collectionName}`;
-    }
-    
-    const docRef = doc(db, path, docId);
-    await deleteDoc(docRef);
-}
-
-// --- OPÉRATIONS SPÉCIFIQUES ---
-
-/**
- * Met à jour les items d'une liste de courses (transaction).
- * @param {string} docId
- * @param {object} items
- * @param {boolean} isShared
- */
-export async function updateCourseItems(docId, items, isShared) {
-    if (!state.userId) return;
-    
-    const collectionName = isShared ? COLLECTIONS.COLLABORATIVE_DOCS : COLLECTIONS.COURSES;
-    const path = isShared ? 
-        `artifacts/${appId}/${collectionName}` :
-        `artifacts/${appId}/users/${state.userId}/${collectionName}`;
-        
-    const docRef = doc(db, path, docId);
     try {
-        await updateDoc(docRef, { items: items });
+        await addDoc(collection(db, path), finalData);
+        showToast("Élément ajouté !", 'success');
     } catch (error) {
-        console.error("Erreur de mise à jour des courses:", error);
-        throw error;
+        console.error("Erreur addDataItem:", error);
+        showToast("Erreur lors de l'ajout.", "error");
     }
 }
 
-/**
- * Convertit un document privé en document collaboratif.
- * @param {object} entry L'élément à partager
- * @param {string} originalType Le type d'origine (ex: 'notes_perso')
- */
-export async function handleSharing(entry, originalType) {
+export async function updateDataItem(collectionName, id, data) {
     if (!state.userId) return;
-
-    const privateDocRef = doc(db, `artifacts/${appId}/users/${state.userId}/${originalType}`, entry.id);
-    const sharedDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`, entry.id);
-
-    await runTransaction(db, async (transaction) => {
-        // 1. Lire le document privé
-        const privateDoc = await transaction.get(privateDocRef);
-        if (!privateDoc.exists()) {
-            throw "Le document n'existe plus.";
-        }
+    
+    // Déterminer le chemin (privé ou partagé)
+    const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS 
+        ? `artifacts/${appId}/${collectionName}` 
+        : `artifacts/${appId}/users/${state.userId}/${collectionName}`;
         
-        // 2. Créer le nouveau document partagé
-        const sharedData = {
-            ...privateDoc.data(),
-            originalType: originalType, // Garder une trace du type d'origine
-            ownerId: state.userId,
-            members: [state.userId], // Seul membre au début
-            isShared: true
-        };
-        transaction.set(sharedDocRef, sharedData);
-
-        // 3. Supprimer l'ancien document privé
-        transaction.delete(privateDocRef);
-    });
+    try {
+        await updateDoc(doc(db, path, id), data);
+        showToast("Mise à jour enregistrée.", 'success');
+    } catch (error) {
+        console.error("Erreur updateDataItem:", error);
+        showToast("Erreur de mise à jour.", "error");
+    }
 }
 
-/**
- * Reconvertit un document collaboratif en document privé.
- * @param {string} docId
- */
-export async function unshareDocument(docId) {
+export async function deleteDataItem(collectionName, id, filePath = null) {
     if (!state.userId) return;
     
-    const sharedDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`, docId);
+    // 1. Supprimer le fichier joint (si Wallet)
+    if (filePath) {
+        try {
+            await deleteObject(ref(storage, filePath));
+        } catch (error) {
+            // Ignorer l'erreur "objet non trouvé"
+            if (error.code !== 'storage/object-not-found') {
+                console.error("Erreur suppression fichier:", error);
+                showToast("Erreur de suppression du fichier joint.", "error");
+                return; // Bloquer la suppression si le fichier échoue
+            }
+        }
+    }
     
-    const batch = writeBatch(db);
+    // 2. Supprimer le document Firestore
+    const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS 
+        ? `artifacts/${appId}/${collectionName}` 
+        : `artifacts/${appId}/users/${state.userId}/${collectionName}`;
+        
+    try {
+        await deleteDoc(doc(db, path, id));
+        showToast("Élément supprimé.", 'success');
+    } catch (error) {
+        console.error("Erreur deleteDataItem:", error);
+        showToast("Erreur de suppression.", "error");
+    }
+}
+
+
+// --- Logique Spécifique: Courses ---
+
+export async function updateCourseItems(docId, collectionName, action) {
+    if (!state.userId) return;
+    const path = collectionName === COLLECTIONS.COLLABORATIVE_DOCS 
+        ? `artifacts/${appId}/${collectionName}/${docId}` 
+        : `artifacts/${appId}/users/${state.userId}/${collectionName}/${docId}`;
+    
+    const docRef = doc(db, path);
     
     try {
-        const sharedDocSnap = await getDoc(sharedDocRef);
-        if (!sharedDocSnap.exists()) throw new Error("Document partagé introuvable.");
-
-        const data = sharedDocSnap.data();
+        const docSnap = await getDoc(docRef);
+        if (!docSnap.exists()) throw new Error("Document non trouvé !");
         
-        // 1. Vérifier si l'utilisateur est le propriétaire
-        if (data.ownerId !== state.userId) {
-            showToast("Seul le propriétaire peut arrêter le partage.", "error");
-            return;
+        let currentItems = docSnap.data().items || [];
+        
+        switch (action.type) {
+            case 'add':
+                currentItems.push({ ...action.payload });
+                break;
+            case 'toggle':
+                if (currentItems[action.payload.index]) {
+                    currentItems[action.payload.index].completed = action.payload.completed;
+                }
+                break;
+            case 'delete':
+                currentItems.splice(action.payload.index, 1);
+                break;
         }
+        
+        await updateDoc(docRef, { items: currentItems });
+    } catch (error) {
+        console.error("Erreur updateCourseItems:", error);
+        showToast("Erreur de mise à jour de la liste.", "error");
+    }
+}
 
-        const originalType = data.originalType;
-        if (!originalType) throw new Error("Type d'origine manquant.");
 
-        // 2. Créer le nouveau document privé
-        const privateDocRef = doc(db, `artifacts/${appId}/users/${state.userId}/${originalType}`, docId);
+// --- Logique Spécifique: Partage (v5.12) ---
+
+export async function handleSharing(entry, originalType, targetUserIds) {
+    if (!state.userId) return;
+    
+    try {
+        if (entry.isShared) {
+            // Cas 1: Ajouter des membres à un document existant
+            const sharedDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`, entry.id);
+            // arrayUnion gère les doublons
+            await updateDoc(sharedDocRef, {
+                members: arrayUnion(...targetUserIds)
+            });
+            showToast("Membres ajoutés au partage !", "success");
+            return entry.id;
+            
+        } else {
+            // Cas 2: Convertir un document privé en document partagé
+            if (!SHAREABLE_TYPES.includes(originalType)) {
+                throw new Error("Cet élément n'est pas partageable.");
+            }
+            
+            const batch = writeBatch(db);
+            
+            // Réf du document privé original
+            const originalDocRef = doc(db, `artifacts/${appId}/users/${state.userId}/${originalType}`, entry.id);
+            
+            // Réf du nouveau document partagé
+            const newSharedDocRef = doc(collection(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`));
+            
+            const newDocData = {
+                ...entry,
+                ownerId: state.userId,
+                members: targetUserIds, // Liste complète des membres
+                originalType: originalType,
+                mode: state.currentMode // Sauvegarder le mode (pro/perso)
+            };
+            delete newDocData.id; // Supprimer l'id (Firestore en crée un nouveau)
+            
+            batch.set(newSharedDocRef, newDocData);
+            batch.delete(originalDocRef); // Supprimer l'ancien document privé
+            
+            await batch.commit();
+            showToast("Document partagé avec succès !", "success");
+            return newSharedDocRef.id;
+        }
+    } catch (error) {
+        console.error("Erreur handleSharing:", error);
+        showToast(error.message || "Erreur lors du partage.", "error");
+        return null;
+    }
+}
+
+export async function unshareDocument(entry) {
+    if (!state.userId || !entry.isShared || entry.ownerId !== state.userId) {
+        return showToast("Action non autorisée.", "error");
+    }
+    
+    try {
+        const batch = writeBatch(db);
         
-        // Nettoyer les données avant de les remettre en privé
-        delete data.originalType;
-        delete data.ownerId;
-        delete data.members;
-        delete data.isShared;
+        // Réf du document partagé
+        const sharedDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`, entry.id);
         
-        batch.set(privateDocRef, data);
+        // Réf du nouveau document privé
+        const newPrivateDocRef = doc(collection(db, `artifacts/${appId}/users/${state.userId}/${entry.originalType}`));
         
-        // 3. Supprimer le document partagé
-        batch.delete(sharedDocRef);
+        // Préparer les données privées
+        const privateData = { ...entry };
+        delete privateData.id;
+        delete privateData.ownerId;
+        delete privateData.members;
+        delete privateData.originalType;
+        delete privateData.isShared;
+        delete privateData.mode; // Supprimer le 'mode'
+        
+        batch.set(newPrivateDocRef, privateData);
+        batch.delete(sharedDocRef); // Supprimer le document partagé
         
         await batch.commit();
         showToast("Le partage a été arrêté.", "success");
-        hideModal();
     } catch (error) {
+        console.error("Erreur unshareDocument:", error);
         showToast("Erreur lors de l'arrêt du partage.", "error");
     }
 }
 
-/**
- * Récupère les tâches (Actions ou TODO) liées à un document parent (ex: Note).
- * @param {string} documentId
- * @param {string} collectionType (ex: 'notesReunion')
- * @returns {Array<object>}
- */
-export async function getLinkedTasks(documentId, collectionType) {
-    if (!state.userId || !documentId) return [];
 
-    // Déterminer la collection où chercher les tâches liées (toujours privé pour les tâches)
-    const taskCollectionName = (collectionType === COLLECTIONS.NOTES_REUNION || collectionType === COLLECTIONS.OBJECTIFS) 
-        ? COLLECTIONS.ACTIONS 
-        : COLLECTIONS.TODO;
-    
-    const tasksCollectionPath = `artifacts/${appId}/users/${state.userId}/${taskCollectionName}`;
+// --- Logique Spécifique: Tâches Liées ---
+
+export async function getLinkedTasks(parentId, parentCollection) {
+    if (!state.userId || !parentId) return [];
+
+    // Déterminer où chercher les tâches (Pro ou Perso)
+    const targetCollection = (parentCollection === COLLECTIONS.NOTES_PERSO) 
+        ? COLLECTIONS.TODO 
+        : COLLECTIONS.ACTIONS;
+        
+    const tasksCollectionPath = `artifacts/${appId}/users/${state.userId}/${targetCollection}`;
     
     try {
         const q = query(
             collection(db, tasksCollectionPath),
-            where('parentId', '==', documentId)
+            where('parentId', '==', parentId)
         );
         
         const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => ({ 
             id: doc.id, 
             ...doc.data(), 
-            collectionName: taskCollectionName 
+            collectionName: targetCollection // Important pour l'ouverture
         }));
     } catch (error) {
-        console.error("Erreur getLinkedTasks:", error);
+        console.error("Erreur lors de la récupération des tâches liées:", error);
         return [];
     }
 }

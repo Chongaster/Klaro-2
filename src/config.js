@@ -1,7 +1,8 @@
-// --- Version 5.3 (Modales superposées) ---
-// (Contient les icônes ⚡ et ✍️, et le filtre 'filterCompleted')
+// --- Version 5.15 (Syntaxe Corrigée) ---
+console.log("--- CHARGEMENT config.js v5.15 ---");
 
 export const firebaseConfig = {
+  // Vos informations de configuration Firebase
   apiKey: "AIzaSyCFMC73NLlmTzGVGcK_-zTwwNyw6-jmr7Y",
   authDomain: "suivitravailapp.firebaseapp.com",
   projectId: "suivitravailapp",
@@ -10,6 +11,7 @@ export const firebaseConfig = {
   appId: "1:621525076182:web:f5a9bc1f5aaae71ce7e177",
   measurementId: "G-15HMDGYYCN"
 };
+
 export const ADMIN_EMAIL = "chongaster@gmail.com";
 
 export const COLLECTIONS = { 
@@ -20,13 +22,11 @@ export const COLLECTIONS = {
     VOYAGES: 'voyages', 
     NOTES_PERSO: 'notes_perso', 
     COURSES: 'courses', 
-    WALLET: 'wallet', 
     USER_PREFERENCES: 'user_preferences', 
     COLLABORATIVE_DOCS: 'collaborative_docs', 
     NICKNAMES: 'nicknames' 
 };
 
-// Types de documents qui peuvent être partagés
 export const SHAREABLE_TYPES = [ 
     COLLECTIONS.NOTES_PERSO, 
     COLLECTIONS.COURSES, 
@@ -37,37 +37,45 @@ export const SHAREABLE_TYPES = [
     COLLECTIONS.TODO 
 ];
 
-// Configuration de la Navigation
-export const NAV_CONFIG = {
-  pro: [
-      { id: 'objectifs', title: 'Objectifs', icon: '🎯', type: COLLECTIONS.OBJECTIFS, description: 'Suivez vos objectifs trimestriels.', isList: false },
-      { id: 'actions_pro', title: 'Actions', icon: '⚡', type: COLLECTIONS.ACTIONS, description: 'Vos actions professionnelles.', isList: true, filterCompleted: false },
-      { id: 'actions_pro_terminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.ACTIONS, description: 'Actions pro terminées.', isList: true, filterCompleted: true },
-      { id: 'notes_reunion', title: 'Réunions', icon: '✍️', type: COLLECTIONS.NOTES_REUNION, description: 'Notes de réunion.', isList: true },
-      { id: 'notes_reunion_archivees', title: 'Réunions Archivées', icon: '🗃️', type: COLLECTIONS.NOTES_REUNION, description: 'Anciennes notes de réunion.', isList: true },
-      { id: 'sharedWithMePro', title: 'Partagés', icon: '🤝', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents professionnels partagés.' }
-  ],
-  perso: [
-      { id: 'todo_perso', title: 'Actions Perso', icon: '⚡', type: COLLECTIONS.TODO, description: 'Vos tâches personnelles.', isList: true, filterCompleted: false },
-      { id: 'todo_perso_terminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.TODO, description: 'Tâches perso achevées.', isList: true, filterCompleted: true },
-      { id: 'voyages', title: 'Voyages', icon: '✈️', type: COLLECTIONS.VOYAGES, description: 'Planifiez vos prochaines escapades.', isList: false },
-      { id: 'notes_perso', title: 'Notes', icon: '🗒️', type: COLLECTIONS.NOTES_PERSO, description: 'Vos pensées et mémos personnels.', isList: true },
-      { id: 'courses', title: 'Courses', icon: '🛒', type: COLLECTIONS.COURSES, description: 'N\'oubliez plus rien.', isList: false },
-      //{ id: 'wallet', title: 'Portefeuille', icon: '🎟️', type: COLLECTIONS.WALLET, description: 'Conservez vos billets et documents importants.' },
-      { id: 'sharedWithMePerso', title: 'Partagés', icon: '🤝', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents personnels partagés.' }
-  ]
-};
-
-// Catégories pour la liste de courses
-export const COURSE_CATEGORIES = [
-    { id: 'fruits_legumes', name: 'Fruits & Légumes', emoji: '🥦' },
-    { id: 'cremerie', name: 'Crémerie', emoji: '🧀' },
-    { id: 'viandes_poissons', name: 'Viandes & Poissons', emoji: '🥩' },
-    { id: 'epicerie_salee', name: 'Épicerie Salée', emoji: '🥫' },
-    { id: 'epicerie_sucree', name: 'Épicerie Sucrée', emoji: '🍪' },
-    { id: 'boissons', name: 'Boissons', emoji: '🥤' },
-    { id: 'hygiene_beaute', name: 'Hygiène & Beauté', emoji: '🧴' },
-    { id: 'entretien', name: 'Entretien', emoji: '🧽' },
-    { id: 'autres', name: 'Autres', emoji: '🛒' }
+export const COURSE_CATEGORIES = [ 
+    "Autre", 
+    "Fruits & Légumes", 
+    "Viandes & Poissons", 
+    "Boulangerie", 
+    "Produits Laitiers & Œufs", 
+    "Épicerie Salée", 
+    "Épicerie Sucrée", 
+    "Boissons", 
+    "Surgelés", 
+    "Hygiène & Beauté", 
+    "Entretien & Nettoyage" 
 ];
+
+// Configuration de la Navigation (v5.14)
+// Ajout de 'mode' pour le filtrage des partages
+// Ajout de 'filterCompleted' pour les listes
+export const NAV_CONFIG = {
+    pro: [
+        { id: 'objectifs_pro', title: 'Objectifs', icon: '🎯', type: COLLECTIONS.OBJECTIFS, description: 'Suivez vos objectifs professionnels.', mode: 'pro' },
+        { id: 'actions_pro', title: 'Actions', icon: '⚡', type: COLLECTIONS.ACTIONS, description: 'Gérez vos tâches professionnelles.', isList: true, filterCompleted: false, mode: 'pro' },
+        { id: 'actions_pro_terminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.ACTIONS, description: 'Consultez vos actions achevées.', isList: true, filterCompleted: true, mode: 'pro' },
+        { id: 'notes_reunion', title: 'Réunions', icon: '✍️', type: COLLECTIONS.NOTES_REUNION, description: 'Archivez vos notes de réunion.', isList: true, mode: 'pro' },
+        { id: 'notes_reunion_archivees', title: 'Réunions Archivées', icon: '🗃️', type: COLLECTIONS.NOTES_REUNION, description: 'Consultez vos anciennes réunions.', isList: true, mode: 'pro' },
+        
+        // Les partages ont 'type: COLLABORATIVE_DOCS' et 'mode: pro'
+        { id: 'mySharesPro', title: 'Mes Partages', icon: '📤', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents que j\'ai partagés.', shareFilter: 'owner', mode: 'pro' },
+        { id: 'sharedWithMePro', title: 'Partagés avec moi', icon: '🤝', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents professionnels partagés avec moi.', shareFilter: 'member', mode: 'pro' }
+    ],
+    perso: [
+        { id: 'todo_perso', title: 'Actions', icon: '⚡', type: COLLECTIONS.TODO, description: 'Vos tâches personnelles.', isList: true, filterCompleted: false, mode: 'perso' },
+        { id: 'todo_perso_terminees', title: 'Terminées', icon: '✅', type: COLLECTIONS.TODO, description: 'Consultez vos tâches personnelles achevées.', isList: true, filterCompleted: true, mode: 'perso' },
+        { id: 'notes_perso', title: 'Notes', icon: '🗒️', type: COLLECTIONS.NOTES_PERSO, description: 'Vos pensées et mémos personnels.', isList: true, mode: 'perso' },
+        { id: 'voyages', title: 'Voyages', icon: '✈️', type: COLLECTIONS.VOYAGES, description: 'Planifiez vos prochaines escapades.', mode: 'perso' },
+        { id: 'courses', title: 'Courses', icon: '🛒', type: COLLECTIONS.COURSES, description: 'N\'oubliez plus rien au supermarché.', mode: 'perso' },
+        
+        // Les partages ont 'type: COLLABORATIVE_DOCS' et 'mode: perso'
+        { id: 'mySharesPerso', title: 'Mes Partages', icon: '📤', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents que j\'ai partagés.', shareFilter: 'owner', mode: 'perso' },
+        { id: 'sharedWithMePerso', title: 'Partagés avec moi', icon: '🤝', type: COLLECTIONS.COLLABORATIVE_DOCS, description: 'Documents personnels partagés avec moi.', shareFilter: 'member', mode: 'perso' }
+    ]
+}; // <-- Le '};' manquant est ici (Corrigé v5.15)
 

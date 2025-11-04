@@ -2,91 +2,98 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <title>Klaro v5.15</title>
+    <!-- Balise Viewport ESSENTIELLE pour le responsive design -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Klaro - Gestion de Tâches</title>
-    <!-- Import de la nouvelle feuille de style -->
-    <link rel="stylesheet" href="./src/style.css">
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>">
+    
     <!-- Import de la police Inter -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link relhref="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- PAS de Tailwind. Import de notre propre CSS -->
+    <link rel="stylesheet" href="src/style.css">
 </head>
 <body class="light-theme">
 
-    <!-- Écran de Connexion (Initialement visible) -->
-    <div id="auth-screen" class="auth-container">
+    <!-- Écran d'Authentification (visible par défaut) -->
+    <div id="auth-container" class="auth-container">
         <div class="auth-box">
-            <h1 class="auth-title">Klaro</h1>
+            <h1 class="auth-title">Klaro ✨</h1>
             <p class="auth-subtitle">Connectez-vous pour continuer</p>
-            
-            <!-- Bouton Email (Uniquement) -->
+            <!-- Bouton Email Uniquement -->
             <button id="authEmailBtn" class="auth-button email">
                 Continuer avec Email
             </button>
-            
-            <p id="connection-status" class="connection-status"></p>
+            <div id="connection-status" class="connection-status offline" title="Hors ligne">...</div>
         </div>
     </div>
 
-    <!-- Interface Principale (Initialement cachée) -->
-    <div id="app-container" class="app-layout hidden">
-
+    <!-- Application Principale (cachée par défaut) -->
+    <div id="app-layout" class="app-layout hidden">
+        
         <!-- Panneau de Navigation (Gauche) -->
-        <nav id="main-nav" class="nav-panel">
+        <nav class="nav-panel">
             <div class="nav-header">
                 <div class="user-info">
-                    <span id="userNicknameDisplay" class="user-nickname"></span>
-                    <span id="userEmailDisplay" class="user-email"></span>
+                    <span id="userNicknameDisplay" class="user-nickname">Chargement...</span>
+                    <span id="userEmailDisplay" class="user-email">...</span>
                 </div>
-                <!-- Sélecteur de Mode (Pro / Perso) -->
                 <div id="modeSelector" class="mode-selector">
-                    <button id="pro-mode-btn" data-mode="pro" class="mode-button active">Pro</button>
-                    <button id="perso-mode-btn" data-mode="perso" class="mode-button">Perso</button>
+                    <button data-mode="pro" class="mode-button">🏢 Pro</button>
+                    <button data-mode="perso" class="mode-button active">🏠 Perso</button>
                 </div>
             </div>
-
-            <!-- Listes de Navigation (générées par JS) -->
-            <div id="nav-list-pro" class="nav-list-container"></div>
-            <div id="nav-list-perso" class="nav-list-container hidden"></div>
-
+            
+            <div id="main-nav-list" class="nav-list-container">
+                <!-- Les boutons de navigation seront injectés ici par ui.js -->
+            </div>
+            
             <div class="nav-footer">
                 <button id="preferencesBtn" class="nav-footer-button" title="Préférences">⚙️</button>
-                <button id="signOutBtn" class="nav-footer-button" title="Déconnexion">Logout</button>
-                <button id="adminBtn" class="nav-footer-button hidden" title="Admin">👑</button>
+                <button id="signOutBtn" class="nav-footer-button" title="Déconnexion">🚪</button>
             </div>
         </nav>
-
+        
         <!-- Panneau de Contenu (Droite) -->
-        <main id="page-content" class="content-panel">
-            <!-- L'en-tête et le contenu de la page sont générés par JS -->
-             <div class="content-header">
-                 <!-- Bouton Retour pour mobile -->
-                <button id="back-to-nav-btn" class="back-button">&lt;</button>
-                <h2 id="page-title-placeholder"></h2>
+        <main class="content-panel">
+            <div class="content-header">
+                <!-- Bouton "Retour" pour le mode mobile -->
+                <button id="back-to-nav-btn" class="back-button" title="Retour">&lt;</button>
+                <h2 id="page-title">Chargement...</h2>
             </div>
+            
             <div id="page-content-wrapper">
-                <!-- Le contenu (cartes/listes) sera inséré ici -->
+                <div id="page-controls" class="page-controls">
+                    <p id="page-description">...</p>
+                    <button id="add-new-item-btn" class="add-new-item-btn">+ Ajouter</button>
+                </div>
+                <div id="page-content" class="page-content-area">
+                    <!-- Le contenu (cartes ou listes) sera injecté ici -->
+                </div>
             </div>
         </main>
     </div>
 
-    <!-- Conteneur pour les fenêtres modales -->
+    <!-- Conteneur de Modale Principale -->
     <div id="modal-overlay" class="modal-overlay hidden">
         <div id="modal-container" class="modal-container">
-            <!-- Le contenu de la modale est généré par JS -->
+            <!-- Le contenu de la modale sera injecté ici -->
         </div>
     </div>
     
-    <!-- Conteneur for modales secondaires (par-dessus la première) -->
+    <!-- Conteneur de Modale Secondaire (pour les tâches depuis une note) -->
     <div id="secondary-modal-overlay" class="modal-overlay hidden">
         <div id="secondary-modal-container" class="modal-container secondary">
-            <!-- Le contenu de la modale secondaire est généré par JS -->
+            <!-- Le contenu de la modale secondaire sera injecté ici -->
         </div>
     </div>
 
+    <!-- Toast (Notification) -->
+    <div id="toast-container"></div>
 
-    <!-- Scripts (Type Module pour Imports/Exports) -->
-    <script type="module" src="./src/main.js"></script>
+    <!-- Import de tous les modules JavaScript -->
+    <script type="module" src="src/main.js"></script>
 </body>
 </html>
 
