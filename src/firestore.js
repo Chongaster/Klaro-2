@@ -1,5 +1,5 @@
-// --- Version 5.15 (Ensemble Complet) ---
-console.log("--- CHARGEMENT firestore.js v5.15 ---");
+// --- Version 5.17 (Correctif Filtre Partage) ---
+console.log("--- CHARGEMENT firestore.js v5.17 ---");
 
 import { 
     collection, 
@@ -39,34 +39,24 @@ export function setupRealtimeListeners() {
     if (!state.userId) return;
     detachAllListeners(); // Nettoyer les anciens écouteurs
     
-    let initialLoads = 0;
-    const totalListeners = Object.keys(COLLECTIONS).length - 3; // Moins USER_PREF, NICKNAMES, COLLAB
-    
     const onDataChange = () => {
         // Dispatch l'événement global pour rafraîchir l'UI
         window.dispatchEvent(new CustomEvent('datachanged'));
     };
     
-    const onInitialLoad = () => {
-        initialLoads++;
-        // On ne dispatch l'événement "datachanged" qu'une fois tout chargé
-        if (initialLoads >= totalListeners) {
-             onDataChange();
-        }
-    };
-
     // Écouteur pour les documents partagés avec moi
     const sharedQuery = query(
         collection(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`), 
         where('members', 'array-contains', state.userId)
     );
+    // CORRIGÉ v5.17: Simplification - onDataChange est appelé directement.
     state.unsubscribeListeners.push(onSnapshot(sharedQuery, (snapshot) => {
         state.sharedDataCache = snapshot.docs.map(doc => ({ 
             id: doc.id, 
             ...doc.data(), 
             isShared: true 
         }));
-        onDataChange(); // Les partages rafraîchissent toujours l'UI
+        onDataChange(); // Rafraîchir l'UI dès que les partages sont à jour
     }, (error) => console.error("Erreur écoute partagés:", error)));
     
     // Écouteurs pour les collections privées
@@ -79,13 +69,13 @@ export function setupRealtimeListeners() {
     privateCollections.forEach(collectionName => {
         const q = query(collection(db, `artifacts/${appId}/users/${state.userId}/${collectionName}`));
         
+        // CORRIGÉ v5.17: Simplification - onDataChange est appelé directement.
         state.unsubscribeListeners.push(onSnapshot(q, (snapshot) => {
             state.privateDataCache[collectionName] = snapshot.docs.map(doc => ({ 
                 id: doc.id, 
                 ...doc.data() 
             }));
-            if (initialLoads < totalListeners) onInitialLoad();
-            else onDataChange();
+            onDataChange(); // Rafraîchir l'UI dès que les données privées sont à jour
         }, (error) => console.error(`Erreur écoute ${collectionName}:`, error)));
     });
 }
@@ -120,12 +110,18 @@ export async function createUserPreferences() {
 
     if (!nicknameSnap.exists()) {
         // Dispo, on le sauvegarde
-        await runTransaction(db, async (transaction) => {
-            const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings');
-            transaction.set(prefRef, { ...prefsToSave, nickname: newNickname });
-            transaction.set(nicknameRef, { userId: state.userId });
-        });
-        prefsToSave.nickname = newNickname;
+        try {
+            await runTransaction(db, async (transaction) => {
+                const prefRef = doc(db, `artifacts/${appId}/users/${state.userId}/${COLLECTIONS.USER_PREFERENCES}`, 'settings');
+                transaction.set(prefRef, { ...prefsToSave, nickname: newNickname });
+                transaction.set(nicknameRef, { userId: state.userId });
+            });
+            prefsToSave.nickname = newNickname;
+        } catch (e) {
+             console.error("Erreur création transactionnelle du pseudo:", e);
+             // Si la transaction échoue, on sauvegarde au moins les prefs
+             await saveUserPreferences(prefsToSave);
+        }
     } else {
         // Non dispo, on sauvegarde juste les prefs sans pseudo
         await saveUserPreferences(prefsToSave);
@@ -330,19 +326,27 @@ export async function updateCourseItems(docId, collectionName, action) {
 }
 
 
-// --- Logique Spécifique: Partage (v5.12) ---
+// --- Logique Spécifique: Partage (v5.17 - CORRIGÉE) ---
 
 export async function handleSharing(entry, originalType, targetUserIds) {
     if (!state.userId) return;
     
     try {
+        const currentMode = state.currentMode; // Capturer le mode actuel
+        
         if (entry.isShared) {
             // Cas 1: Ajouter des membres à un document existant
             const sharedDocRef = doc(db, `artifacts/${appId}/${COLLECTIONS.COLLABORATIVE_DOCS}`, entry.id);
-            // arrayUnion gère les doublons
-            await updateDoc(sharedDocRef, {
+            
+            // CORRIGÉ v5.17: S'assurer que le 'mode' est défini, même sur les anciens documents
+            const dataToUpdate = {
                 members: arrayUnion(...targetUserIds)
-            });
+            };
+            if (!entry.mode) {
+                dataToUpdate.mode = currentMode;
+            }
+            
+            await updateDoc(sharedDocRef, dataToUpdate);
             showToast("Membres ajoutés au partage !", "success");
             return entry.id;
             
@@ -365,7 +369,7 @@ export async function handleSharing(entry, originalType, targetUserIds) {
                 ownerId: state.userId,
                 members: targetUserIds, // Liste complète des membres
                 originalType: originalType,
-                mode: state.currentMode // Sauvegarder le mode (pro/perso)
+                mode: currentMode // Sauvegarder le mode (pro/perso)
             };
             delete newDocData.id; // Supprimer l'id (Firestore en crée un nouveau)
             

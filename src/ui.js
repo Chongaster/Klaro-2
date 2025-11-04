@@ -1,5 +1,5 @@
-// --- Version 5.16 (Correctif Export Modal) ---
-console.log("--- CHARGEMENT ui.js v5.16 ---");
+// --- Version 5.17 (Correctif Filtre Partage) ---
+console.log("--- CHARGEMENT ui.js v5.17 ---");
 
 import { ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -45,7 +45,6 @@ let hasCheckedOverdueTasks = false;
 
 // --- GESTION DES MODALES (Principale et Secondaire) ---
 
-// CORRIGÉ v5.16: Ajout de 'export'
 export function showModal(content, maxWidthClass = 'max-w-lg') {
     if (!DOMElements.modalContainer || !DOMElements.modalOverlay) return;
     
@@ -66,7 +65,6 @@ export function hideModal() {
     DOMElements.modalOverlay.removeEventListener('click', closeModalHandler);
 }
 
-// CORRIGÉ v5.16: Ajout de 'export'
 export function showSecondaryModal(content, maxWidthClass = 'max-w-md') {
     if (!DOMElements.secondaryModalContainer || !DOMElements.secondaryModalOverlay) return;
 
@@ -222,28 +220,38 @@ export async function renderPageContent() {
     const config = NAV_CONFIG[state.currentMode].find(p => p.id === state.currentPageId);
     if (!config) return;
 
-    // --- Logique de filtrage des données (v5.14) ---
+    // --- Logique de filtrage des données (v5.17 - CORRIGÉE) ---
     let dataToShow = [];
-    const privateData = state.privateDataCache[config.type] || [];
     
     if (config.type === COLLECTIONS.COLLABORATIVE_DOCS) {
         // C'est une page de Partages
         if (config.shareFilter === 'owner') {
             // "Mes Partages"
-            dataToShow = state.sharedDataCache.filter(doc => doc.ownerId === state.userId && doc.mode === config.mode);
+            dataToShow = state.sharedDataCache.filter(doc => 
+                doc.ownerId === state.userId &&
+                // CORRIGÉ: Accepter les docs sans mode (anciens) ou ceux qui correspondent
+                (doc.mode === config.mode || typeof doc.mode === 'undefined') 
+            );
         } else {
             // "Partagés avec moi"
-            dataToShow = state.sharedDataCache.filter(doc => doc.ownerId !== state.userId && doc.mode === config.mode);
+            dataToShow = state.sharedDataCache.filter(doc => 
+                doc.ownerId !== state.userId &&
+                // CORRIGÉ: Accepter les docs sans mode (anciens) ou ceux qui correspondent
+                (doc.mode === config.mode || typeof doc.mode === 'undefined')
+            );
         }
     } else {
         // C'est une page standard (ex: Actions, Objectifs)
         // On affiche les données privées...
+        const privateData = state.privateDataCache[config.type] || [];
         dataToShow = [...privateData];
+        
         // ...ET les données partagées (par moi) qui correspondent à ce type et mode
         const mySharedData = state.sharedDataCache.filter(doc => 
             doc.ownerId === state.userId && 
             doc.originalType === config.type &&
-            doc.mode === config.mode
+            // CORRIGÉ: Accepter les docs sans mode (anciens) ou ceux qui correspondent
+            (doc.mode === config.mode || typeof doc.mode === 'undefined')
         );
         dataToShow = [...dataToShow, ...mySharedData];
     }
