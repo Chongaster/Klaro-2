@@ -1,5 +1,5 @@
-// --- Version 5.15 (Ensemble Complet) ---
-console.log("--- CHARGEMENT state.js v5.15 ---");
+// --- Version 5.24 (Cache Buster) ---
+// (Fichier Inchangé)
 
 const state = {
     userId: null,
@@ -7,19 +7,21 @@ const state = {
     isAdmin: false,
     userPreferences: {
         theme: 'light',
-        startupMode: 'perso',
-        nickname: ''
+        startupMode: 'perso', // 'pro' ou 'perso'
+        nickname: '',
+        hiddenModes: [] // ex: ['pro']
     },
     currentMode: 'perso', // 'pro' ou 'perso'
     currentPageId: null, // ex: 'objectifs_pro'
     
-    // Cache de données
-    privateDataCache: {}, // ex: { 'actions': [...], 'todo_perso': [...] }
-    sharedDataCache: [], // Contient TOUS les docs partagés
+    // Cache pour les données privées, indexé par nom de collection
+    privateDataCache: {}, 
     
-    // Gestionnaires des écouteurs Firestore
+    // Cache pour tous les documents partagés (où l'utilisateur est membre)
+    sharedDataCache: [], 
+    
+    // Tableau des fonctions 'unsubscribe' des écouteurs Firestore
     unsubscribeListeners: [],
-};
-
-export default state;
-
+  };
+  
+  export default state;

@@ -1,5 +1,6 @@
-// --- Version 5.3 (Modales superposées) ---
-// (Ce fichier est stable et n'est pas utilisé par l'application principale)
+// --- Version 5.20 (Stable + Voyage) ---
+// Note : ce fichier (v5.19) est stable.
+// Fichier d'exemple, non utilisé par l'application Klaro.
 
 export function setupCounter(element) {
   let counter = 0
@@ -10,4 +11,3 @@ export function setupCounter(element) {
   element.addEventListener('click', () => setCounter(counter + 1))
   setCounter(0)
 }
-
