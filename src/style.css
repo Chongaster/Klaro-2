@@ -526,7 +526,8 @@ body.dark-theme .statut-max { background-color: var(--success-color); color: var
   justify-content: center;
   z-index: 50;
   backdrop-filter: blur(4px);
-  padding: 16px;
+  padding: 40px 16px;
+  overflow-y: auto;
 }
 .modal-container {
   background-color: var(--bg-primary);
