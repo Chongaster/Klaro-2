@@ -533,7 +533,7 @@ body.dark-theme .statut-max { background-color: var(--success-color); color: var
   border-radius: 12px;
   box-shadow: 0 10px 25px var(--shadow-color);
   width: 100%;
-  max-width: 600px;
+  max-width: 1024px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
